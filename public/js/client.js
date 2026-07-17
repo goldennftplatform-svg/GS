@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const PALETTE = {
   cream: 0xfff2b3,
@@ -100,7 +101,44 @@ const gunGroup = new THREE.Group();
 camera.add(gunGroup);
 scene.add(camera);
 
-function buildGun() {
+/** @type {{ agent?: THREE.Object3D, raygun?: THREE.Object3D, crate?: THREE.Object3D, server?: THREE.Object3D }} */
+const models = {};
+const gltfLoader = new GLTFLoader();
+
+function groundNormalize(root, targetHeight) {
+  const box = new THREE.Box3().setFromObject(root);
+  const size = new THREE.Vector3();
+  box.getSize(size);
+  const h = Math.max(size.y, 0.001);
+  const s = targetHeight / h;
+  root.scale.setScalar(s);
+  const box2 = new THREE.Box3().setFromObject(root);
+  root.position.y -= box2.min.y;
+  return root;
+}
+
+function tintClone(root, color) {
+  root.traverse((o) => {
+    if (!o.isMesh || !o.material) return;
+    const wasArray = Array.isArray(o.material);
+    const mats = wasArray ? o.material : [o.material];
+    const cloned = mats.map((m) => {
+      const c = m.clone();
+      if (c.emissive) c.emissive = new THREE.Color(color).multiplyScalar(0.12);
+      return c;
+    });
+    o.material = wasArray ? cloned : cloned[0];
+  });
+  const band = new THREE.Mesh(
+    new THREE.BoxGeometry(0.55, 0.12, 0.55),
+    new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.35 })
+  );
+  band.position.y = 1.05;
+  root.add(band);
+  return root;
+}
+
+function fallbackGun() {
   const body = new THREE.Mesh(
     new THREE.BoxGeometry(0.14, 0.16, 0.62),
     new THREE.MeshStandardMaterial({ color: PALETTE.grey, metalness: 0.65, roughness: 0.3 })
@@ -116,18 +154,72 @@ function buildGun() {
   );
   barrel.rotation.x = Math.PI / 2;
   barrel.position.set(0.24, -0.2, -0.98);
-  const screen = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.09, 0.055),
-    new THREE.MeshBasicMaterial({ color: PALETTE.green })
-  );
-  screen.position.set(0.24, -0.15, -0.42);
-  gunGroup.add(body, barrel, screen);
+  gunGroup.add(body, barrel);
 }
-buildGun();
+
+function mountRaygun() {
+  while (gunGroup.children.length) gunGroup.remove(gunGroup.children[0]);
+  if (!models.raygun) {
+    fallbackGun();
+  } else {
+    const gun = models.raygun.clone(true);
+    gun.scale.setScalar(0.55);
+    gun.rotation.set(0, Math.PI, 0);
+    gun.position.set(0.28, -0.28, -0.55);
+    gun.traverse((o) => {
+      if (o.isMesh) {
+        o.castShadow = true;
+        o.frustumCulled = false;
+      }
+    });
+    gunGroup.add(gun);
+  }
+  muzzleFlash.position.set(0.28, -0.22, -1.05);
+  gunGroup.add(muzzleFlash);
+}
 
 const muzzleFlash = new THREE.PointLight(PALETTE.green, 0, 5);
-muzzleFlash.position.set(0.24, -0.2, -1.15);
-gunGroup.add(muzzleFlash);
+
+function loadModel(url) {
+  return new Promise((resolve, reject) => {
+    gltfLoader.load(url, (gltf) => resolve(gltf.scene), undefined, reject);
+  });
+}
+
+async function loadGameAssets() {
+  bootStatus.textContent = 'PULLING BLENDER ASSETS…';
+  try {
+    const [agent, raygun, crate, server] = await Promise.all([
+      loadModel('/assets/models/skullpepe.glb'),
+      loadModel('/assets/models/raygun.glb'),
+      loadModel('/assets/models/crate.glb'),
+      loadModel('/assets/models/server.glb'),
+    ]);
+    models.agent = groundNormalize(agent, 1.85);
+    models.raygun = raygun;
+    models.crate = groundNormalize(crate, 1.1);
+    models.server = groundNormalize(server, 3.4);
+    models.agent.traverse((o) => {
+      if (o.isMesh) {
+        o.castShadow = true;
+        o.receiveShadow = true;
+      }
+    });
+    mountRaygun();
+    decorateFacilityProps();
+    // Swap any placeholder agents for Blender meshes
+    for (const [, mesh] of remoteMeshes) scene.remove(mesh);
+    remoteMeshes.clear();
+    if (offlineMatch) syncRemotes(offlineMatch.roster);
+    else if (players.size) syncRemotes([...players.values()]);
+    bootStatus.textContent = 'ASSETS LOCKED — READY';
+  } catch (err) {
+    console.warn('Asset load failed', err);
+    fallbackGun();
+    gunGroup.add(muzzleFlash);
+    bootStatus.textContent = 'ASSET FALLBACK — STILL PLAYABLE';
+  }
+}
 
 function addLights() {
   scene.add(new THREE.AmbientLight(0x6a886a, 0.5));
@@ -406,6 +498,11 @@ function resolveCollision(p, radius = 0.45) {
 }
 
 function makeAgentMesh(color) {
+  if (models.agent) {
+    const clone = models.agent.clone(true);
+    return tintClone(clone, color);
+  }
+  // Fallback blocks if GLB not ready
   const g = new THREE.Group();
   const bodyMat = new THREE.MeshStandardMaterial({ color, roughness: 0.7 });
   const boneMat = new THREE.MeshStandardMaterial({ color: PALETTE.cream, roughness: 0.6 });
@@ -413,29 +510,47 @@ function makeAgentMesh(color) {
   torso.position.y = 0.95;
   const head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), boneMat);
   head.position.y = 1.65;
-  const face = new THREE.Mesh(
-    new THREE.BoxGeometry(0.52, 0.28, 0.1),
-    new THREE.MeshStandardMaterial({
-      color: PALETTE.green,
-      emissive: PALETTE.green,
-      emissiveIntensity: 0.4,
-    })
-  );
-  face.position.set(0, 1.65, 0.22);
-  const strap = new THREE.Mesh(
-    new THREE.BoxGeometry(0.75, 0.12, 0.5),
-    new THREE.MeshStandardMaterial({ color: PALETTE.brown })
-  );
-  strap.position.y = 1.1;
-  strap.rotation.z = 0.4;
-  g.add(torso, head, face, strap);
-  g.traverse((o) => {
-    if (o.isMesh) {
-      o.castShadow = true;
-      o.receiveShadow = true;
-    }
-  });
+  g.add(torso, head);
   return g;
+}
+
+function decorateFacilityProps() {
+  if (!models.crate && !models.server) return;
+  const spots = [
+    [-14, -34],
+    [10, -36],
+    [-8, -30],
+    [14, 32],
+    [-16, 36],
+    [0, 30],
+    [34, -8],
+    [36, 6],
+    [32, 12],
+    [-36, -6],
+    [-34, 8],
+    [-8, 8],
+    [8, -8],
+    [-22, 0],
+    [22, 0],
+  ];
+  spots.forEach(([x, z], i) => {
+    const useServer = i % 3 === 0 && models.server;
+    const src = useServer ? models.server : models.crate;
+    if (!src) return;
+    const prop = src.clone(true);
+    prop.position.set(x, 0, z);
+    prop.rotation.y = (i * 0.7) % (Math.PI * 2);
+    prop.traverse((o) => {
+      if (o.isMesh) {
+        o.castShadow = true;
+        o.receiveShadow = true;
+      }
+    });
+    scene.add(prop);
+    // soft collision for prop footprint
+    const r = useServer ? 1.3 : 0.85;
+    WALLS.push({ minX: x - r, maxX: x + r, minZ: z - r, maxZ: z + r });
+  });
 }
 
 function syncRemotes(list) {
@@ -1057,6 +1172,9 @@ addEventListener('resize', () => {
 
 addLights();
 buildFacility();
+fallbackGun();
+gunGroup.add(muzzleFlash);
+loadGameAssets();
 
 const clock = new THREE.Clock();
 function tick() {
