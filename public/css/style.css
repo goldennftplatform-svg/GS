@@ -224,10 +224,19 @@ html, body {
 #hud {
   position: fixed;
   inset: 0;
-  z-index: 10;
-  pointer-events: none;
+  z-index: 5;
+  pointer-events: none !important;
   color: var(--cream);
   text-shadow: 0 2px 0 #000, 0 0 8px rgba(0,0,0,0.6);
+}
+
+#hud * {
+  pointer-events: none !important;
+}
+
+#hitMarker.show {
+  border-color: #fff2b3;
+  box-shadow: 0 0 16px #6baf6e;
 }
 
 .hud-top, .hud-bottom {
