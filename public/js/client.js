@@ -194,18 +194,47 @@ function loadModel(url) {
 }
 
 async function loadGameAssets() {
-  bootStatus.textContent = 'PULLING BLENDER ASSETS…';
+  if (bootStatus) bootStatus.textContent = 'PULLING BLENDER ASSETS…';
+  const urls = {
+    agent: '/assets/models/skullpepe.glb',
+    raygun: '/assets/models/raygun.glb',
+    crate: '/assets/models/crate.glb',
+    server: '/assets/models/server.glb',
+    hazard: '/assets/models/hazard_sign.glb',
+    bag: '/assets/models/daily_bag.glb',
+    token: '/assets/models/skull_token.glb',
+    heart: '/assets/models/oneup_heart.glb',
+    daisy: '/assets/models/daisy.glb',
+    badge: '/assets/models/crew_badge.glb',
+    skate: '/assets/models/skateboard.glb',
+    barrel: '/assets/models/barrel.glb',
+    tomb: '/assets/models/tombstone.glb',
+    checker: '/assets/models/checker_wall.glb',
+    pipes: '/assets/models/pipes.glb',
+    mohawk: '/assets/models/mohawk_head.glb',
+  };
   try {
-    const [agent, raygun, crate, server] = await Promise.all([
-      loadModel('/assets/models/skullpepe.glb'),
-      loadModel('/assets/models/raygun.glb'),
-      loadModel('/assets/models/crate.glb'),
-      loadModel('/assets/models/server.glb'),
-    ]);
-    models.agent = groundNormalize(agent, 1.85);
-    models.raygun = raygun;
-    models.crate = groundNormalize(crate, 1.1);
-    models.server = groundNormalize(server, 3.4);
+    const entries = await Promise.all(
+      Object.entries(urls).map(async ([key, url]) => [key, await loadModel(url)])
+    );
+    for (const [key, sceneRoot] of entries) models[key] = sceneRoot;
+
+    models.agent = groundNormalize(models.agent, 1.85);
+    models.crate = groundNormalize(models.crate, 1.1);
+    models.server = groundNormalize(models.server, 3.4);
+    models.hazard = groundNormalize(models.hazard, 2.2);
+    models.bag = groundNormalize(models.bag, 1.0);
+    models.token = groundNormalize(models.token, 0.55);
+    models.heart = groundNormalize(models.heart, 0.7);
+    models.daisy = groundNormalize(models.daisy, 1.15);
+    models.badge = groundNormalize(models.badge, 1.0);
+    models.skate = groundNormalize(models.skate, 0.35);
+    models.barrel = groundNormalize(models.barrel, 1.35);
+    models.tomb = groundNormalize(models.tomb, 1.6);
+    models.checker = groundNormalize(models.checker, 1.8);
+    models.pipes = groundNormalize(models.pipes, 2.4);
+    models.mohawk = groundNormalize(models.mohawk, 1.4);
+
     models.agent.traverse((o) => {
       if (o.isMesh) {
         o.castShadow = true;
@@ -214,17 +243,16 @@ async function loadGameAssets() {
     });
     mountRaygun();
     decorateFacilityProps();
-    // Swap any placeholder agents for Blender meshes
     for (const [, mesh] of remoteMeshes) scene.remove(mesh);
     remoteMeshes.clear();
     if (offlineMatch) syncRemotes(offlineMatch.roster);
     else if (players.size) syncRemotes([...players.values()]);
-    bootStatus.textContent = 'ASSETS LOCKED — READY';
+    if (bootStatus) bootStatus.textContent = 'ASSETS LOCKED — READY';
   } catch (err) {
     console.warn('Asset load failed', err);
     fallbackGun();
     gunGroup.add(muzzleFlash);
-    bootStatus.textContent = 'ASSET FALLBACK — STILL PLAYABLE';
+    if (bootStatus) bootStatus.textContent = 'ASSET FALLBACK — STILL PLAYABLE';
   }
 }
 
@@ -476,12 +504,12 @@ function buildFacility() {
     });
   }
 
-  // Tokens everywhere
+  // Floating skull tokens (placeholders until GLB props land)
   for (let i = 0; i < 40; i++) {
     const a = (i / 40) * Math.PI * 2;
     const rad = 12 + (i % 5) * 10;
     const coin = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.35, 0.35, 0.08, 16),
+      new THREE.CylinderGeometry(0.28, 0.28, 0.08, 12),
       new THREE.MeshStandardMaterial({
         color: 0xd4af37,
         metalness: 0.7,
@@ -493,49 +521,8 @@ function buildFacility() {
     coin.rotation.x = Math.PI / 2;
     coin.position.set(Math.cos(a) * rad, 1.25, Math.sin(a) * rad);
     coin.userData.spin = true;
+    coin.userData.tempToken = true;
     scene.add(coin);
-  }
-
-  // Sheet posters on outer walls + room labels
-  const loader = new THREE.TextureLoader();
-  const posters = [
-    { url: '/assets/characters.png', x: 0, z: -HALF + 1.5, ry: 0 },
-    { url: '/assets/features.png', x: HALF - 1.5, z: 0, ry: -Math.PI / 2 },
-    { url: '/assets/story.png', x: -HALF + 1.5, z: 0, ry: Math.PI / 2 },
-    { url: '/assets/pitch.png', x: 0, z: HALF - 1.5, ry: Math.PI },
-    { url: '/assets/style-sheet.png', x: -36, z: -HALF + 1.5, ry: 0 },
-    { url: '/assets/landing.png', x: 36, z: HALF - 1.5, ry: Math.PI },
-  ];
-  for (const p of posters) {
-    loader.load(p.url, (tex) => {
-      tex.colorSpace = THREE.SRGBColorSpace;
-      const mesh = new THREE.Mesh(
-        new THREE.PlaneGeometry(9, 5.5),
-        new THREE.MeshBasicMaterial({ map: tex })
-      );
-      mesh.position.set(p.x, 3, p.z);
-      mesh.rotation.y = p.ry;
-      scene.add(mesh);
-    });
-  }
-
-  // Room name plaques (simple emissive bars)
-  const plaques = [
-    [0, -42, 'ARCHIVES'],
-    [0, 44, 'SERVERS'],
-    [44, 0, 'ARMORY'],
-    [-44, 0, 'LOCKERS'],
-    [36, -36, 'GREENHOUSE'],
-    [-36, 36, 'HAZARD'],
-    [36, 36, 'BOSS'],
-    [-36, -36, 'RADIO'],
-  ];
-  for (const [x, z] of plaques) {
-    solidBox(4, 0.35, 0.35, PALETTE.green, x, 4.2, z, {
-      emissive: PALETTE.green,
-      emissiveIntensity: 0.6,
-      collide: false,
-    });
   }
 }
 
@@ -626,34 +613,177 @@ function makeAgentMesh(agentOrColor) {
   return g;
 }
 
-function decorateFacilityProps() {
-  if (!models.crate && !models.server) return;
-  const spots = [
-    [-14, -46], [10, -48], [-8, -40], [18, -44],
-    [14, 42], [-16, 48], [0, 40], [8, 52], [-8, 36],
-    [46, -8], [48, 6], [42, 14], [50, -16],
-    [-48, -6], [-46, 10], [-50, 18], [-42, -14],
-    [-8, 8], [8, -8], [-22, 0], [22, 0],
-    [36, -36], [-36, 36], [36, 36], [-36, -36],
-    [28, 28], [-28, -28], [0, -20], [0, 20],
-  ];
-  spots.forEach(([x, z], i) => {
-    const useServer = i % 3 === 0 && models.server;
-    const src = useServer ? models.server : models.crate;
-    if (!src) return;
-    const prop = src.clone(true);
-    prop.position.set(x, 0, z);
-    prop.rotation.y = (i * 0.7) % (Math.PI * 2);
-    prop.traverse((o) => {
-      if (o.isMesh) {
-        o.castShadow = true;
-        o.receiveShadow = true;
-      }
-    });
-    scene.add(prop);
-    const r = useServer ? 1.3 : 0.85;
-    WALLS.push({ minX: x - r, maxX: x + r, minZ: z - r, maxZ: z + r });
+function placeProp(src, x, z, opts = {}) {
+  if (!src) return null;
+  const prop = src.clone(true);
+  prop.position.set(x, opts.y ?? 0, z);
+  prop.rotation.y = opts.ry ?? 0;
+  if (opts.scale) prop.scale.multiplyScalar(opts.scale);
+  prop.traverse((o) => {
+    if (o.isMesh) {
+      o.castShadow = true;
+      o.receiveShadow = true;
+    }
   });
+  if (opts.spin) prop.userData.spin = true;
+  if (opts.hoverBob) prop.userData.hoverBob = true;
+  scene.add(prop);
+  if (opts.collide) {
+    const r = opts.collide;
+    WALLS.push({ minX: x - r, maxX: x + r, minZ: z - r, maxZ: z + r });
+  }
+  return prop;
+}
+
+function decorateFacilityProps() {
+  // Remove temp gold discs once real tokens exist
+  if (models.token) {
+    const doomed = [];
+    scene.traverse((o) => {
+      if (o.userData?.tempToken) doomed.push(o);
+    });
+    for (const o of doomed) scene.remove(o);
+  }
+
+  // Crates / servers
+  const crateSpots = [
+    [-14, -46], [10, -48], [18, -44], [14, 42], [-16, 48], [8, 52],
+    [46, -8], [48, 6], [50, -16], [-48, -6], [-46, 10], [-50, 18],
+    [-22, 0], [22, 0], [28, 28], [-28, -28],
+  ];
+  crateSpots.forEach(([x, z], i) => {
+    const useServer = i % 4 === 0;
+    placeProp(useServer ? models.server : models.crate, x, z, {
+      ry: i * 0.6,
+      collide: useServer ? 1.3 : 0.85,
+    });
+  });
+
+  // Hazard zone
+  for (const [x, z] of [
+    [-42, 30], [-30, 30], [-42, 42], [-30, 42], [-36, 28], [-28, 36],
+  ]) {
+    placeProp(models.hazard, x, z, { ry: Math.atan2(-x + -36, -z + 36), collide: 0.6 });
+  }
+  for (const [x, z] of [
+    [-40, 34], [-32, 40], [-38, 38],
+  ]) {
+    placeProp(models.barrel, x, z, { ry: x * 0.2, collide: 0.7 });
+  }
+
+  // Greenhouse daisies
+  for (let i = 0; i < 10; i++) {
+    const a = (i / 10) * Math.PI * 2;
+    placeProp(models.daisy, 36 + Math.cos(a) * 7, -36 + Math.sin(a) * 7, {
+      ry: a,
+      scale: 0.85 + (i % 3) * 0.1,
+    });
+  }
+
+  // Boss arena mohawks + tombs
+  for (const [x, z] of [
+    [30, 30], [42, 30], [30, 42], [42, 42], [36, 28],
+  ]) {
+    placeProp(models.mohawk, x, z, { ry: Math.atan2(36 - x, 36 - z) + Math.PI, collide: 0.5 });
+  }
+  for (const [x, z] of [
+    [28, 36], [44, 36], [36, 44],
+  ]) {
+    placeProp(models.tomb, x, z, { ry: 0.2, collide: 0.55 });
+  }
+
+  // Archives bags + tombs
+  for (const [x, z] of [
+    [-12, -40], [0, -48], [12, -40], [-18, -34], [18, -34],
+  ]) {
+    placeProp(models.bag, x, z, { ry: x * 0.1, collide: 0.45 });
+  }
+  for (const [x, z] of [
+    [-8, -44], [8, -44],
+  ]) {
+    placeProp(models.tomb, x, z, { collide: 0.55 });
+  }
+
+  // Armory skates + pipes
+  for (const [x, z] of [
+    [40, -10], [46, 4], [42, 14],
+  ]) {
+    placeProp(models.skate, x, z, { ry: Math.PI / 2, collide: 0.4 });
+  }
+  for (const [x, z] of [
+    [48, -14], [50, 10], [44, -4],
+  ]) {
+    placeProp(models.pipes, x, z, { collide: 0.7 });
+  }
+
+  // Lockers pipes + barrels
+  for (const [x, z] of [
+    [-48, -12], [-50, 8], [-44, 16],
+  ]) {
+    placeProp(models.pipes, x, z, { collide: 0.7 });
+  }
+  for (const [x, z] of [
+    [-46, -4], [-42, 12],
+  ]) {
+    placeProp(models.barrel, x, z, { collide: 0.7 });
+  }
+
+  // Checker wall panels (NOT concept sheets) along outer walls
+  const checkers = [
+    { x: 0, z: -HALF + 2.2, ry: 0 },
+    { x: 0, z: HALF - 2.2, ry: Math.PI },
+    { x: HALF - 2.2, z: 0, ry: -Math.PI / 2 },
+    { x: -HALF + 2.2, z: 0, ry: Math.PI / 2 },
+    { x: -24, z: -HALF + 2.2, ry: 0 },
+    { x: 24, z: HALF - 2.2, ry: Math.PI },
+    { x: HALF - 2.2, z: -24, ry: -Math.PI / 2 },
+    { x: -HALF + 2.2, z: 24, ry: Math.PI / 2 },
+  ];
+  for (const c of checkers) {
+    placeProp(models.checker, c.x, c.z, { ry: c.ry, y: 0.2 });
+  }
+
+  // Crew badges as room markers
+  const badges = [
+    [0, -42], [0, 44], [44, 0], [-44, 0],
+    [36, -36], [-36, 36], [36, 36], [-36, -36],
+  ];
+  for (const [x, z] of badges) {
+    const b = placeProp(models.badge, x, z, { y: 3.2, ry: Math.atan2(-x, -z) });
+    if (b) {
+      b.position.y = 3.2;
+      b.userData.spin = true;
+    }
+  }
+
+  // Hearts float near spawns
+  for (const s of SPAWNS) {
+    placeProp(models.heart, s.x + 3, s.z - 2, { y: 1.4, spin: true, hoverBob: true });
+  }
+
+  // Real skull tokens
+  if (models.token) {
+    for (let i = 0; i < 36; i++) {
+      const a = (i / 36) * Math.PI * 2;
+      const rad = 14 + (i % 5) * 9;
+      placeProp(models.token, Math.cos(a) * rad, Math.sin(a) * rad, {
+        y: 1.15,
+        spin: true,
+        hoverBob: true,
+        scale: 0.9,
+      });
+    }
+  }
+
+  // Hub bags / boards for vibe
+  for (const [x, z] of [
+    [-6, -6], [6, 6], [-10, 8], [10, -8],
+  ]) {
+    placeProp(models.bag, x, z, { ry: 0.4, collide: 0.4 });
+  }
+  placeProp(models.skate, 0, -16, { ry: 0.3 });
+  placeProp(models.skate, 16, 0, { ry: 1.2 });
+  placeProp(models.mohawk, 0, 16, { ry: Math.PI });
 }
 
 function syncRemotes(list) {
@@ -1368,9 +1498,10 @@ function tick() {
   const t = clock.elapsedTime;
 
   scene.traverse((o) => {
-    if (o.userData.spin) {
-      o.rotation.z = t * 2.2;
-      o.position.y = 1.25 + Math.sin(t * 3 + o.position.x) * 0.18;
+    if (o.userData.spin || o.userData.hoverBob) {
+      if (o.userData.baseY == null) o.userData.baseY = o.position.y;
+      if (o.userData.spin) o.rotation.y = t * 1.8;
+      o.position.y = o.userData.baseY + Math.sin(t * 3 + o.position.x) * 0.14;
     }
   });
 
