@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { AGENTS, getAgent, statBar } from './roster.js';
 
 const PALETTE = {
   cream: 0xfff2b3,
@@ -14,7 +15,7 @@ const PALETTE = {
   metal: 0x6a7068,
 };
 
-const MAP = 96; // world size
+const MAP = 128; // Facility footprint
 const HALF = MAP / 2;
 const EYE = 1.65;
 const GRAVITY = 28;
@@ -24,12 +25,18 @@ const DMG = 34;
 
 const canvas = document.getElementById('game');
 const boot = document.getElementById('boot');
+const selectScreen = document.getElementById('selectScreen');
 const hud = document.getElementById('hud');
 const overlay = document.getElementById('overlay');
 const nameInput = document.getElementById('nameInput');
 const joinBtn = document.getElementById('joinBtn');
 const soloBtn = document.getElementById('soloBtn');
 const bootStatus = document.getElementById('bootStatus');
+const selectStatus = document.getElementById('selectStatus');
+const toSelectBtn = document.getElementById('toSelectBtn');
+const backBoot = document.getElementById('backBoot');
+const agentGrid = document.getElementById('agentGrid');
+const agentTag = document.getElementById('agentTag');
 
 const els = {
   score: document.getElementById('hudScore'),
@@ -49,6 +56,8 @@ const els = {
   standings: document.getElementById('standings'),
   overlayTitle: document.getElementById('overlayTitle'),
 };
+
+let selectedAgentId = localStorage.getItem('skullbond-agent') || 'skullpepe';
 
 const keys = {
   f: false,
@@ -77,13 +86,11 @@ const WALLS = [];
 const PILLARS = [];
 
 const SPAWNS = [
-  { x: -38, y: EYE, z: -38, yaw: Math.PI / 4 },
-  { x: 38, y: EYE, z: -38, yaw: (3 * Math.PI) / 4 },
-  { x: -38, y: EYE, z: 38, yaw: -Math.PI / 4 },
-  { x: 38, y: EYE, z: 38, yaw: (-3 * Math.PI) / 4 },
+  { x: -52, y: EYE, z: -52, yaw: Math.PI / 4 },
+  { x: 52, y: EYE, z: -52, yaw: (3 * Math.PI) / 4 },
+  { x: -52, y: EYE, z: 52, yaw: -Math.PI / 4 },
+  { x: 52, y: EYE, z: 52, yaw: (-3 * Math.PI) / 4 },
 ];
-const BOT_NAMES = ['AGENT PEPE', 'AGENT DAISY', 'AGENT BONES'];
-const BOT_COLORS = ['#E5392D', '#B56A4D', '#8E8E8E'];
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -92,9 +99,9 @@ renderer.shadowMap.enabled = true;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0a100c);
-scene.fog = new THREE.Fog(0x0a100c, 40, 110);
+scene.fog = new THREE.Fog(0x0a100c, 55, 145);
 
-const camera = new THREE.PerspectiveCamera(74, innerWidth / innerHeight, 0.05, 160);
+const camera = new THREE.PerspectiveCamera(74, innerWidth / innerHeight, 0.05, 200);
 camera.position.set(0, EYE, 8);
 
 const gunGroup = new THREE.Group();
@@ -227,21 +234,23 @@ function addLights() {
   sun.position.set(30, 40, 18);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
-  sun.shadow.camera.left = -60;
-  sun.shadow.camera.right = 60;
-  sun.shadow.camera.top = 60;
-  sun.shadow.camera.bottom = -60;
+  sun.shadow.camera.left = -80;
+  sun.shadow.camera.right = 80;
+  sun.shadow.camera.top = 80;
+  sun.shadow.camera.bottom = -80;
   scene.add(sun);
   for (const [x, z] of [
     [0, 0],
-    [-30, -30],
-    [30, -30],
-    [-30, 30],
-    [30, 30],
-    [0, -28],
-    [0, 28],
+    [-40, -40],
+    [40, -40],
+    [-40, 40],
+    [40, 40],
+    [0, -40],
+    [0, 40],
+    [-40, 0],
+    [40, 0],
   ]) {
-    const p = new THREE.PointLight(PALETTE.green, 0.9, 28);
+    const p = new THREE.PointLight(PALETTE.green, 0.85, 32);
     p.position.set(x, 5.5, z);
     scene.add(p);
   }
@@ -293,141 +302,184 @@ function buildFacility() {
 
   const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(MAP, MAP),
-    new THREE.MeshStandardMaterial({ color: 0x2f3c2e, roughness: 0.97 })
+    new THREE.MeshStandardMaterial({ color: 0x2a3428, roughness: 0.97 })
   );
   floor.rotation.x = -Math.PI / 2;
   floor.receiveShadow = true;
   scene.add(floor);
 
-  const grid = new THREE.GridHelper(MAP, MAP / 2, 0x2e6e3e, 0x182418);
+  const grid = new THREE.GridHelper(MAP, MAP / 2, 0x2e6e3e, 0x152015);
   grid.position.y = 0.015;
   scene.add(grid);
 
-  const wallH = 6;
-  // Outer shell
-  solidBox(MAP, wallH, 1.2, PALETTE.wall, 0, wallH / 2, -HALF + 0.6);
-  solidBox(MAP, wallH, 1.2, PALETTE.wall, 0, wallH / 2, HALF - 0.6);
-  solidBox(1.2, wallH, MAP, PALETTE.wall, -HALF + 0.6, wallH / 2, 0);
-  solidBox(1.2, wallH, MAP, PALETTE.wall, HALF - 0.6, wallH / 2, 0);
-
-  // === MAIN LAB (center) ===
-  roomFloor(0, 0, 28, 28, 0x354534);
-  solidBox(5, 5, 5, PALETTE.accent, 0, 2.5, 0, {
-    emissive: PALETTE.greenDark,
-    emissiveIntensity: 0.25,
-  });
-  solidBox(1.6, 0.35, 1.6, PALETTE.green, 0, 5.2, 0, {
-    emissive: PALETTE.green,
-    emissiveIntensity: 0.9,
-    collide: false,
-  });
-
-  // Lab ring cover
-  for (const [x, z] of [
-    [-8, -8],
-    [8, -8],
-    [-8, 8],
-    [8, 8],
-    [-12, 0],
-    [12, 0],
-    [0, -12],
-    [0, 12],
-  ]) {
-    pillar(x, z, 1.3, 2.8);
-  }
-
-  // Corridor walls with doorways (segmented)
+  const wallH = 6.5;
   function wallSeg(w, h, d, x, y, z, color = PALETTE.wall) {
     solidBox(w, h, d, color, x, y, z);
   }
 
-  // === NORTH ARCHIVES ===
-  roomFloor(0, -32, 36, 20, 0x3a3228);
-  for (let i = -14; i <= 14; i += 7) {
-    wallSeg(1.2, 3.5, 10, i, 1.75, -34, PALETTE.brown);
+  // Outer shell
+  solidBox(MAP, wallH, 1.4, PALETTE.wall, 0, wallH / 2, -HALF + 0.7);
+  solidBox(MAP, wallH, 1.4, PALETTE.wall, 0, wallH / 2, HALF - 0.7);
+  solidBox(1.4, wallH, MAP, PALETTE.wall, -HALF + 0.7, wallH / 2, 0);
+  solidBox(1.4, wallH, MAP, PALETTE.wall, HALF - 0.7, wallH / 2, 0);
+
+  // === MAIN LAB ===
+  roomFloor(0, 0, 34, 34, 0x354534);
+  solidBox(6, 5.5, 6, PALETTE.accent, 0, 2.75, 0, {
+    emissive: PALETTE.greenDark,
+    emissiveIntensity: 0.3,
+  });
+  solidBox(2, 0.4, 2, PALETTE.green, 0, 5.7, 0, {
+    emissive: PALETTE.green,
+    emissiveIntensity: 1,
+    collide: false,
+  });
+  for (const [x, z] of [
+    [-10, -10], [10, -10], [-10, 10], [10, 10],
+    [-14, 0], [14, 0], [0, -14], [0, 14],
+    [-7, 0], [7, 0], [0, -7], [0, 7],
+  ]) {
+    pillar(x, z, 1.25, 3);
   }
-  wallSeg(8, 3, 1, -14, 1.5, -24, PALETTE.brown);
-  wallSeg(8, 3, 1, 14, 1.5, -24, PALETTE.brown);
+
+  // === NORTH ARCHIVES ===
+  roomFloor(0, -42, 44, 28, 0x3a3228);
+  for (let i = -18; i <= 18; i += 6) {
+    wallSeg(1.3, 3.8, 12, i, 1.9, -46, PALETTE.brown);
+  }
+  wallSeg(12, 3.2, 1.1, -16, 1.6, -30, PALETTE.brown);
+  wallSeg(12, 3.2, 1.1, 16, 1.6, -30, PALETTE.brown);
+  for (const x of [-20, -8, 8, 20]) pillar(x, -38, 1.1, 2.6);
 
   // === SOUTH SERVER FARM ===
-  roomFloor(0, 34, 40, 18, 0x243028);
-  for (let x = -16; x <= 16; x += 8) {
-    for (let z = 28; z <= 40; z += 6) {
-      solidBox(2.4, 3.6, 2.4, PALETTE.metal, x, 1.8, z, {
+  roomFloor(0, 44, 48, 24, 0x1f2a22);
+  for (let x = -20; x <= 20; x += 7) {
+    for (let z = 36; z <= 52; z += 8) {
+      solidBox(2.6, 4, 2.6, PALETTE.metal, x, 2, z, {
         emissive: PALETTE.greenDark,
-        emissiveIntensity: 0.15,
+        emissiveIntensity: 0.18,
       });
     }
   }
 
   // === EAST ARMORY ===
-  roomFloor(34, 0, 18, 30, 0x3a3a32);
-  wallSeg(1, 4, 10, 24, 2, -10, PALETTE.grey);
-  wallSeg(1, 4, 10, 24, 2, 10, PALETTE.grey);
-  for (const z of [-8, 0, 8]) {
-    solidBox(3, 1.2, 1.2, PALETTE.grey, 36, 0.6, z, { metalness: 0.4 });
+  roomFloor(44, 0, 24, 40, 0x3a3a32);
+  wallSeg(1.2, 4.2, 14, 30, 2.1, -12, PALETTE.grey);
+  wallSeg(1.2, 4.2, 14, 30, 2.1, 12, PALETTE.grey);
+  for (const z of [-14, -6, 2, 10, 18]) {
+    solidBox(3.2, 1.3, 1.3, PALETTE.grey, 48, 0.65, z, { metalness: 0.45 });
   }
-  pillar(30, -12, 1.1);
-  pillar(30, 12, 1.1);
+  pillar(38, -16, 1.2);
+  pillar(38, 16, 1.2);
+  pillar(50, 0, 1.4, 3.2);
 
-  // === WEST LOCKERS / BATH ===
-  roomFloor(-34, 0, 18, 30, 0x32382f);
-  wallSeg(1, 4, 10, -24, 2, -10, PALETTE.wall);
-  wallSeg(1, 4, 10, -24, 2, 10, PALETTE.wall);
-  for (let z = -10; z <= 10; z += 5) {
-    solidBox(4, 2.2, 1.5, PALETTE.grey, -36, 1.1, z);
-  }
-
-  // Cross corridors (with cover)
-  for (const z of [-18, 18]) {
-    pillar(-20, z, 1.2);
-    pillar(20, z, 1.2);
-    pillar(0, z, 1.5, 3.5);
-  }
-  for (const x of [-18, 18]) {
-    pillar(x, -6, 1.1);
-    pillar(x, 6, 1.1);
+  // === WEST LOCKERS ===
+  roomFloor(-44, 0, 24, 40, 0x30382f);
+  wallSeg(1.2, 4.2, 14, -30, 2.1, -12, PALETTE.wall);
+  wallSeg(1.2, 4.2, 14, -30, 2.1, 12, PALETTE.wall);
+  for (let z = -16; z <= 16; z += 4) {
+    solidBox(4.2, 2.4, 1.6, PALETTE.grey, -48, 1.2, z);
   }
 
-  // Long divider walls with gaps (doorways at center)
-  wallSeg(14, 4.5, 1.1, -17, 2.25, -18, PALETTE.wall);
-  wallSeg(14, 4.5, 1.1, 17, 2.25, -18, PALETTE.wall);
-  wallSeg(14, 4.5, 1.1, -17, 2.25, 18, PALETTE.wall);
-  wallSeg(14, 4.5, 1.1, 17, 2.25, 18, PALETTE.wall);
-  wallSeg(1.1, 4.5, 14, -18, 2.25, -17, PALETTE.wall);
-  wallSeg(1.1, 4.5, 14, -18, 2.25, 17, PALETTE.wall);
-  wallSeg(1.1, 4.5, 14, 18, 2.25, -17, PALETTE.wall);
-  wallSeg(1.1, 4.5, 14, 18, 2.25, 17, PALETTE.wall);
-
-  // Corner spawn pads + bunkers
-  for (const s of SPAWNS) {
-    solidBox(4, 0.18, 4, PALETTE.green, s.x, 0.09, s.z, {
+  // === NE GREENHOUSE (Daisy lore) ===
+  roomFloor(36, -36, 22, 22, 0x2e4a32);
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    solidBox(0.5, 2.2, 0.5, PALETTE.green, 36 + Math.cos(a) * 6, 1.1, -36 + Math.sin(a) * 6, {
       emissive: PALETTE.green,
-      emissiveIntensity: 0.4,
-      collide: false,
-    });
-    pillar(s.x + 4, s.z, 1.2);
-    pillar(s.x, s.z + 4, 1.2);
-  }
-
-  // Ceiling light strips
-  for (let i = -40; i <= 40; i += 10) {
-    solidBox(MAP - 4, 0.15, 0.35, PALETTE.cream, 0, 5.7, i, {
-      emissive: PALETTE.cream,
-      emissiveIntensity: 0.2,
-      collide: false,
-    });
-    solidBox(0.35, 0.15, MAP - 4, PALETTE.cream, i, 5.7, 0, {
-      emissive: PALETTE.cream,
-      emissiveIntensity: 0.15,
+      emissiveIntensity: 0.25,
       collide: false,
     });
   }
+  pillar(36, -36, 1.6, 2.2);
 
-  // Tokens
-  for (let i = 0; i < 24; i++) {
-    const a = (i / 24) * Math.PI * 2;
-    const rad = 14 + (i % 3) * 12;
+  // === SW HAZARD PIT ===
+  roomFloor(-36, 36, 22, 22, 0x3a2a18);
+  solidBox(10, 0.4, 10, 0x5a3a10, -36, 0.2, 36, { collide: false });
+  for (const [x, z] of [
+    [-42, 30], [-30, 30], [-42, 42], [-30, 42], [-36, 36],
+  ]) {
+    solidBox(1.2, 2.8, 1.2, PALETTE.cream, x, 1.4, z, {
+      emissive: 0x886600,
+      emissiveIntensity: 0.35,
+    });
+  }
+
+  // === NW RADIO ROOM ===
+  roomFloor(-36, -36, 22, 22, 0x283028);
+  solidBox(4, 3, 4, PALETTE.metal, -36, 1.5, -36, {
+    emissive: PALETTE.greenDark,
+    emissiveIntensity: 0.2,
+  });
+  for (const a of [0, 1, 2, 3]) {
+    const ang = (a / 4) * Math.PI * 2;
+    pillar(-36 + Math.cos(ang) * 7, -36 + Math.sin(ang) * 7, 1.0, 2.4);
+  }
+
+  // === SE BOSS ARENA ===
+  roomFloor(36, 36, 24, 24, 0x402820);
+  solidBox(8, 0.25, 8, PALETTE.red, 36, 0.12, 36, {
+    emissive: PALETTE.red,
+    emissiveIntensity: 0.2,
+    collide: false,
+  });
+  for (const [x, z] of [
+    [28, 28], [44, 28], [28, 44], [44, 44],
+  ]) pillar(x, z, 1.5, 3.4);
+
+  // Hub corridors + doorway walls
+  for (const z of [-24, 24]) {
+    wallSeg(18, 4.8, 1.2, -22, 2.4, z);
+    wallSeg(18, 4.8, 1.2, 22, 2.4, z);
+    pillar(-10, z, 1.3, 3.2);
+    pillar(10, z, 1.3, 3.2);
+  }
+  for (const x of [-24, 24]) {
+    wallSeg(1.2, 4.8, 18, x, 2.4, -22);
+    wallSeg(1.2, 4.8, 18, x, 2.4, 22);
+    pillar(x, -10, 1.3, 3.2);
+    pillar(x, 10, 1.3, 3.2);
+  }
+
+  // Mid-ring cover
+  for (const [x, z] of [
+    [-18, -18], [18, -18], [-18, 18], [18, 18],
+    [-28, 0], [28, 0], [0, -28], [0, 28],
+    [-40, -20], [40, -20], [-40, 20], [40, 20],
+  ]) {
+    pillar(x, z, 1.35, 3);
+  }
+
+  // Spawn bunkers
+  for (const s of SPAWNS) {
+    solidBox(5, 0.2, 5, PALETTE.green, s.x, 0.1, s.z, {
+      emissive: PALETTE.green,
+      emissiveIntensity: 0.45,
+      collide: false,
+    });
+    pillar(s.x + 5, s.z, 1.3);
+    pillar(s.x, s.z + 5, 1.3);
+    wallSeg(6, 2.2, 1, s.x, 1.1, s.z - 6, PALETTE.wall);
+  }
+
+  // Ceiling lights
+  for (let i = -56; i <= 56; i += 12) {
+    solidBox(MAP - 6, 0.16, 0.4, PALETTE.cream, 0, 6.1, i, {
+      emissive: PALETTE.cream,
+      emissiveIntensity: 0.22,
+      collide: false,
+    });
+    solidBox(0.4, 0.16, MAP - 6, PALETTE.cream, i, 6.1, 0, {
+      emissive: PALETTE.cream,
+      emissiveIntensity: 0.16,
+      collide: false,
+    });
+  }
+
+  // Tokens everywhere
+  for (let i = 0; i < 40; i++) {
+    const a = (i / 40) * Math.PI * 2;
+    const rad = 12 + (i % 5) * 10;
     const coin = new THREE.Mesh(
       new THREE.CylinderGeometry(0.35, 0.35, 0.08, 16),
       new THREE.MeshStandardMaterial({
@@ -444,24 +496,45 @@ function buildFacility() {
     scene.add(coin);
   }
 
-  // Posters
+  // Sheet posters on outer walls + room labels
   const loader = new THREE.TextureLoader();
   const posters = [
-    { url: '/assets/characters.png', x: 0, z: -HALF + 1.3, ry: 0 },
-    { url: '/assets/features.png', x: HALF - 1.3, z: 0, ry: -Math.PI / 2 },
-    { url: '/assets/story.png', x: -HALF + 1.3, z: 0, ry: Math.PI / 2 },
-    { url: '/assets/pitch.png', x: 0, z: HALF - 1.3, ry: Math.PI },
+    { url: '/assets/characters.png', x: 0, z: -HALF + 1.5, ry: 0 },
+    { url: '/assets/features.png', x: HALF - 1.5, z: 0, ry: -Math.PI / 2 },
+    { url: '/assets/story.png', x: -HALF + 1.5, z: 0, ry: Math.PI / 2 },
+    { url: '/assets/pitch.png', x: 0, z: HALF - 1.5, ry: Math.PI },
+    { url: '/assets/style-sheet.png', x: -36, z: -HALF + 1.5, ry: 0 },
+    { url: '/assets/landing.png', x: 36, z: HALF - 1.5, ry: Math.PI },
   ];
   for (const p of posters) {
     loader.load(p.url, (tex) => {
       tex.colorSpace = THREE.SRGBColorSpace;
       const mesh = new THREE.Mesh(
-        new THREE.PlaneGeometry(8, 5),
+        new THREE.PlaneGeometry(9, 5.5),
         new THREE.MeshBasicMaterial({ map: tex })
       );
-      mesh.position.set(p.x, 2.8, p.z);
+      mesh.position.set(p.x, 3, p.z);
       mesh.rotation.y = p.ry;
       scene.add(mesh);
+    });
+  }
+
+  // Room name plaques (simple emissive bars)
+  const plaques = [
+    [0, -42, 'ARCHIVES'],
+    [0, 44, 'SERVERS'],
+    [44, 0, 'ARMORY'],
+    [-44, 0, 'LOCKERS'],
+    [36, -36, 'GREENHOUSE'],
+    [-36, 36, 'HAZARD'],
+    [36, 36, 'BOSS'],
+    [-36, -36, 'RADIO'],
+  ];
+  for (const [x, z] of plaques) {
+    solidBox(4, 0.35, 0.35, PALETTE.green, x, 4.2, z, {
+      emissive: PALETTE.green,
+      emissiveIntensity: 0.6,
+      collide: false,
     });
   }
 }
@@ -497,41 +570,72 @@ function resolveCollision(p, radius = 0.45) {
   }
 }
 
-function makeAgentMesh(color) {
+function makeAgentMesh(agentOrColor) {
+  const agent =
+    typeof agentOrColor === 'string' || typeof agentOrColor === 'number'
+      ? { color: agentOrColor, tint: agentOrColor, scale: 1, hover: false, id: 'skullpepe' }
+      : agentOrColor || getAgent('skullpepe');
+  const color = agent.color || agent.tint || '#6BAF6E';
+
   if (models.agent) {
     const clone = models.agent.clone(true);
-    return tintClone(clone, color);
+    clone.scale.multiplyScalar(agent.scale || 1);
+    tintClone(clone, color);
+    if (agent.id === 'daisy') {
+      for (let i = 0; i < 5; i++) {
+        const petal = new THREE.Mesh(
+          new THREE.SphereGeometry(0.08, 6, 6),
+          new THREE.MeshStandardMaterial({
+            color: i % 2 ? 0xfff2b3 : 0xe5392d,
+            emissive: 0xfff2b3,
+            emissiveIntensity: 0.2,
+          })
+        );
+        const a = (i / 5) * Math.PI * 2;
+        petal.position.set(Math.cos(a) * 0.28, 1.72, Math.sin(a) * 0.28);
+        clone.add(petal);
+      }
+    }
+    if (agent.id === 'hazard') {
+      const stripe = new THREE.Mesh(
+        new THREE.BoxGeometry(0.7, 0.18, 0.7),
+        new THREE.MeshStandardMaterial({
+          color: 0xfff2b3,
+          emissive: 0xaa8800,
+          emissiveIntensity: 0.5,
+        })
+      );
+      stripe.position.y = 0.55;
+      clone.add(stripe);
+    }
+    if (agent.hover) clone.userData.hoverBob = true;
+    return clone;
   }
-  // Fallback blocks if GLB not ready
+
   const g = new THREE.Group();
   const bodyMat = new THREE.MeshStandardMaterial({ color, roughness: 0.7 });
-  const boneMat = new THREE.MeshStandardMaterial({ color: PALETTE.cream, roughness: 0.6 });
   const torso = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.9, 0.45), bodyMat);
   torso.position.y = 0.95;
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), boneMat);
+  const head = new THREE.Mesh(
+    new THREE.BoxGeometry(0.5, 0.5, 0.5),
+    new THREE.MeshStandardMaterial({ color: PALETTE.cream })
+  );
   head.position.y = 1.65;
   g.add(torso, head);
+  g.scale.setScalar(agent.scale || 1);
   return g;
 }
 
 function decorateFacilityProps() {
   if (!models.crate && !models.server) return;
   const spots = [
-    [-14, -34],
-    [10, -36],
-    [-8, -30],
-    [14, 32],
-    [-16, 36],
-    [0, 30],
-    [34, -8],
-    [36, 6],
-    [32, 12],
-    [-36, -6],
-    [-34, 8],
-    [-8, 8],
-    [8, -8],
-    [-22, 0],
-    [22, 0],
+    [-14, -46], [10, -48], [-8, -40], [18, -44],
+    [14, 42], [-16, 48], [0, 40], [8, 52], [-8, 36],
+    [46, -8], [48, 6], [42, 14], [50, -16],
+    [-48, -6], [-46, 10], [-50, 18], [-42, -14],
+    [-8, 8], [8, -8], [-22, 0], [22, 0],
+    [36, -36], [-36, 36], [36, 36], [-36, -36],
+    [28, 28], [-28, -28], [0, -20], [0, 20],
   ];
   spots.forEach(([x, z], i) => {
     const useServer = i % 3 === 0 && models.server;
@@ -547,7 +651,6 @@ function decorateFacilityProps() {
       }
     });
     scene.add(prop);
-    // soft collision for prop footprint
     const r = useServer ? 1.3 : 0.85;
     WALLS.push({ minX: x - r, maxX: x + r, minZ: z - r, maxZ: z + r });
   });
@@ -564,12 +667,14 @@ function syncRemotes(list) {
     }
     let mesh = remoteMeshes.get(p.id);
     if (!mesh) {
-      mesh = makeAgentMesh(new THREE.Color(p.color));
+      const agent = getAgent(p.agentId || 'skullpepe');
+      mesh = makeAgentMesh({ ...agent, color: p.color || agent.color });
       remoteMeshes.set(p.id, mesh);
       scene.add(mesh);
     }
     mesh.visible = !!p.alive;
-    mesh.position.set(p.x, (p.y || EYE) - EYE, p.z);
+    const bob = mesh.userData.hoverBob ? Math.sin(performance.now() * 0.004) * 0.12 : 0;
+    mesh.position.set(p.x, (p.y || EYE) - EYE + bob, p.z);
     mesh.rotation.y = p.yaw;
   }
   for (const [id, mesh] of remoteMeshes) {
@@ -638,14 +743,15 @@ function updateHud(state) {
   els.kills.textContent = me.kills;
   els.deaths.textContent = me.deaths;
 
-  const hearts = Math.ceil((me.hp / 100) * 3);
+  const maxHp = me.maxHp || 100;
+  const hearts = Math.ceil((me.hp / maxHp) * 3);
   els.hearts.innerHTML = '';
   for (let i = 0; i < 3; i++) {
     const h = document.createElement('div');
     h.className = 'heart' + (i < hearts ? ' full' : '');
     els.hearts.appendChild(h);
   }
-  els.energy.style.width = `${Math.max(15, Math.min(100, me.hp))}%`;
+  els.energy.style.width = `${Math.max(15, Math.min(100, (me.hp / maxHp) * 100))}%`;
 
   if (me.hp < lastHp) {
     els.damage.classList.add('on');
@@ -672,6 +778,7 @@ function updateHud(state) {
 
 function beginMission(title) {
   boot.classList.add('hidden');
+  selectScreen?.classList.add('hidden');
   hud.classList.remove('hidden');
   overlay.classList.add('hidden');
   showCenter(title, 2000);
@@ -691,12 +798,17 @@ function endMatch(standings) {
   }, 7500);
 }
 
-function makeEntity(id, name, color, spawnIndex, bot = false) {
+function makeEntity(id, name, agentId, spawnIndex, bot = false) {
+  const agent = getAgent(agentId);
   const s = SPAWNS[spawnIndex % SPAWNS.length];
+  const maxHp = Math.round(100 * agent.hpMul);
   return {
     id,
-    name,
-    color,
+    name: name || agent.name,
+    agentId: agent.id,
+    color: agent.color,
+    speedMul: agent.speedMul,
+    maxHp,
     x: s.x,
     y: s.y,
     z: s.z,
@@ -704,7 +816,7 @@ function makeEntity(id, name, color, spawnIndex, bot = false) {
     pitch: 0,
     vy: 0,
     grounded: true,
-    hp: 100,
+    hp: maxHp,
     kills: 0,
     deaths: 0,
     tokens: 0,
@@ -736,7 +848,7 @@ function resetOfflineMatch() {
       pitch: 0,
       vy: 0,
       grounded: true,
-      hp: 100,
+      hp: p.maxHp || 100,
       kills: 0,
       deaths: 0,
       tokens: 0,
@@ -757,8 +869,10 @@ function resetOfflineMatch() {
 function startOffline(name) {
   offlineMode = true;
   myId = 'local';
-  const me = makeEntity('local', (name || 'AGENT ZERO').slice(0, 16).toUpperCase(), '#6BAF6E', 0);
-  const bots = BOT_NAMES.map((n, i) => makeEntity(`bot${i}`, n, BOT_COLORS[i], i + 1, true));
+  const mine = getAgent(selectedAgentId);
+  const me = makeEntity('local', (name || mine.name).slice(0, 16).toUpperCase(), mine.id, 0, false);
+  const botAgents = AGENTS.filter((a) => a.id !== mine.id).slice(0, 3);
+  const bots = botAgents.map((a, i) => makeEntity(`bot${i}`, a.name, a.id, i + 1, true));
   offlineMatch = {
     roster: [me, ...bots],
     killFeed: [],
@@ -769,8 +883,9 @@ function startOffline(name) {
   pitch = 0;
   camera.position.set(me.x, me.y, me.z);
   localAlive = true;
-  lastHp = 100;
-  beginMission('FACILITY — SOLO OPS');
+  lastHp = me.maxHp;
+  if (agentTag) agentTag.textContent = `#${String(mine.slot).padStart(2, '0')} ${mine.name}`;
+  beginMission(`${mine.name} — SOLO OPS`);
   publishOfflineHud();
 }
 
@@ -847,7 +962,8 @@ function applyShot(shooter, now) {
 }
 
 function moveEntity(p, forward, strafe, sprint, wantJump, dt) {
-  const speed = sprint ? 10.5 : 7.2;
+  const mul = p.speedMul || 1;
+  const speed = (sprint ? 10.5 : 7.2) * mul;
   let mx = strafe;
   let mz = forward;
   if (mx || mz) {
@@ -928,7 +1044,7 @@ function offlineTick(dt) {
       p.yaw = s.yaw;
       p.vy = 0;
       p.grounded = true;
-      p.hp = 100;
+      p.hp = p.maxHp || 100;
       p.alive = true;
       p.respawnAt = 0;
       if (p.lives <= 0) p.lives = 3;
@@ -977,7 +1093,7 @@ function connect(name) {
     !localStorage.getItem('skullbond-ws') &&
     !new URLSearchParams(location.search).get('ws')
   ) {
-    bootStatus.textContent = 'NO GAME SERVER ON VERCEL — STARTING SOLO…';
+    statusMsg(selectStatus || bootStatus, 'NO GAME SERVER ON VERCEL — STARTING SOLO…');
     setTimeout(() => startOffline(name), 300);
     return;
   }
@@ -991,7 +1107,7 @@ function connect(name) {
       ws?.close();
     } catch {}
     localStorage.removeItem('skullbond-ws');
-    bootStatus.textContent = `${why} — SOLO OPS`;
+    statusMsg(selectStatus || bootStatus, `${why} — SOLO OPS`);
     setTimeout(() => startOffline(name), 350);
   };
 
@@ -1006,7 +1122,7 @@ function connect(name) {
 
   ws.onopen = () => {
     bootStatus.textContent = 'LINKED — ARMING…';
-    ws.send(JSON.stringify({ type: 'join', name }));
+    ws.send(JSON.stringify({ type: 'join', name, agentId: selectedAgentId }));
   };
   ws.onerror = () => {
     clearTimeout(timer);
@@ -1037,7 +1153,9 @@ function connect(name) {
       clearTimeout(timer);
       offlineMode = false;
       myId = msg.id;
-      beginMission('FACILITY — DEATHMATCH');
+      const mine = getAgent(selectedAgentId);
+      if (agentTag) agentTag.textContent = `#${String(mine.slot).padStart(2, '0')} ${mine.name}`;
+      beginMission(`${mine.name} — DEATHMATCH`);
       return;
     }
     if (msg.type === 'state') {
@@ -1087,26 +1205,93 @@ function sendInput() {
   keys.jump = false;
 }
 
+function statusMsg(el, text) {
+  if (el) el.textContent = text;
+}
+
 function armJoin(mode) {
-  const name = (nameInput.value || localStorage.getItem('skullbond-name') || 'AGENT ZERO').trim();
+  const mine = getAgent(selectedAgentId);
+  const name = (nameInput.value || localStorage.getItem('skullbond-name') || mine.name).trim();
   localStorage.setItem('skullbond-name', name);
+  localStorage.setItem('skullbond-agent', selectedAgentId);
   joinBtn.disabled = true;
   soloBtn.disabled = true;
   if (mode === 'solo') {
-    bootStatus.textContent = 'LOADING FACILITY…';
+    statusMsg(selectStatus, 'LOADING FACILITY…');
     startOffline(name);
     return;
   }
-  bootStatus.textContent = 'ESTABLISHING UPLINK…';
+  statusMsg(selectStatus, 'ESTABLISHING UPLINK…');
   connect(name);
 }
+
+function renderDossier(agent) {
+  const art = document.getElementById('dossierArt');
+  document.getElementById('dossierSlot').textContent = `#${String(agent.slot).padStart(2, '0')}`;
+  document.getElementById('dossierName').textContent = agent.name;
+  document.getElementById('dossierCode').textContent = agent.codename;
+  document.getElementById('dossierBio').textContent = agent.bio;
+  document.getElementById('dossierLore').textContent = agent.lore;
+  document.getElementById('dossierTip').textContent = `TIP — ${agent.tip}`;
+  document.getElementById('dossierStats').innerHTML = [
+    `SPD ${statBar(agent.stats.speed, 5, '⚡')}`,
+    `HP  ${statBar(agent.stats.health, 5, '♥')}`,
+    `RAD ${statBar(agent.stats.radness, 5, '☠')}`,
+    `KIT ${agent.kit}`,
+  ].join('<br>');
+  if (art) {
+    art.style.backgroundImage = `url('${agent.portrait}')`;
+    art.style.backgroundPosition = agent.portraitPos || 'center';
+  }
+}
+
+function buildAgentSelect() {
+  agentGrid.innerHTML = '';
+  for (const agent of AGENTS) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'agent-card' + (agent.id === selectedAgentId ? ' selected' : '');
+    btn.innerHTML = `
+      <div class="thumb" style="background-image:url('${agent.portrait}');background-position:${agent.portraitPos || 'center'}"></div>
+      <div class="meta">
+        <div class="slot">#${String(agent.slot).padStart(2, '0')}</div>
+        <div class="name">${agent.name}</div>
+        <div class="code">${agent.codename}</div>
+      </div>`;
+    btn.addEventListener('click', () => {
+      selectedAgentId = agent.id;
+      localStorage.setItem('skullbond-agent', agent.id);
+      agentGrid.querySelectorAll('.agent-card').forEach((c) => c.classList.remove('selected'));
+      btn.classList.add('selected');
+      renderDossier(agent);
+    });
+    agentGrid.appendChild(btn);
+  }
+  renderDossier(getAgent(selectedAgentId));
+}
+
+toSelectBtn?.addEventListener('click', () => {
+  boot.classList.add('hidden');
+  selectScreen.classList.remove('hidden');
+  buildAgentSelect();
+});
+
+backBoot?.addEventListener('click', () => {
+  selectScreen.classList.add('hidden');
+  boot.classList.remove('hidden');
+});
 
 joinBtn.addEventListener('click', () => armJoin('net'));
 soloBtn.addEventListener('click', () => armJoin('solo'));
 nameInput.value = localStorage.getItem('skullbond-name') || '';
 nameInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') armJoin(isHostedStatic() ? 'solo' : 'net');
+  if (e.key === 'Enter') {
+    boot.classList.add('hidden');
+    selectScreen.classList.remove('hidden');
+    buildAgentSelect();
+  }
 });
+
 
 addEventListener('keydown', (e) => {
   if (e.repeat) return;

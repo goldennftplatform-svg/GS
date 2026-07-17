@@ -13,19 +13,25 @@ const FIRE_COOLDOWN_MS = 180;
 const RESPAWN_MS = 2500;
 const HIT_RADIUS = 0.95;
 const PLAYER_HEIGHT = 1.65;
-const MAP_HALF = 46;
+const MAP_HALF = 60;
 const GRAVITY = 28;
 const JUMP_VEL = 9.5;
 
 const SPAWNS = [
-  { x: -38, y: PLAYER_HEIGHT, z: -38, yaw: Math.PI / 4 },
-  { x: 38, y: PLAYER_HEIGHT, z: -38, yaw: (3 * Math.PI) / 4 },
-  { x: -38, y: PLAYER_HEIGHT, z: 38, yaw: -Math.PI / 4 },
-  { x: 38, y: PLAYER_HEIGHT, z: 38, yaw: (-3 * Math.PI) / 4 },
+  { x: -52, y: PLAYER_HEIGHT, z: -52, yaw: Math.PI / 4 },
+  { x: 52, y: PLAYER_HEIGHT, z: -52, yaw: (3 * Math.PI) / 4 },
+  { x: -52, y: PLAYER_HEIGHT, z: 52, yaw: -Math.PI / 4 },
+  { x: 52, y: PLAYER_HEIGHT, z: 52, yaw: (-3 * Math.PI) / 4 },
 ];
 
-const COLORS = ['#6BAF6E', '#E5392D', '#B56A4D', '#8E8E8E'];
-const NAMES = ['AGENT ZERO', 'AGENT PEPE', 'AGENT DAISY', 'AGENT BONES'];
+const AGENTS = {
+  skullpepe: { name: 'SKULL PEPE', color: '#6BAF6E', speedMul: 1.08, hpMul: 1.0 },
+  daisy: { name: 'DAISY SKULL', color: '#E5392D', speedMul: 1.0, hpMul: 0.95 },
+  mini: { name: 'MINI MOHAWK', color: '#2E6E3E', speedMul: 1.2, hpMul: 0.8 },
+  boss: { name: 'BOSS MARKER', color: '#B56A4D', speedMul: 0.88, hpMul: 1.35 },
+  drone: { name: 'RAY DRONE', color: '#8E8E8E', speedMul: 1.05, hpMul: 0.9 },
+  hazard: { name: 'AGENT HAZARD', color: '#FFF2B3', speedMul: 1.02, hpMul: 1.05 },
+};
 
 const app = express();
 app.use(express.static(path.join(__dirname, '..', 'public')));
@@ -53,14 +59,18 @@ function freeSpawnIndex() {
   return Math.floor(Math.random() * SPAWNS.length);
 }
 
-function spawnPlayer(id, name) {
+function spawnPlayer(id, name, agentId) {
   const spawnIndex = freeSpawnIndex();
   const s = SPAWNS[spawnIndex];
-  const slot = [...players.keys()].length;
+  const agent = AGENTS[agentId] || AGENTS.skullpepe;
+  const maxHp = Math.round(PLAYER_HP * agent.hpMul);
   return {
     id,
-    name: (name || NAMES[slot % NAMES.length]).slice(0, 16).toUpperCase(),
-    color: COLORS[slot % COLORS.length],
+    name: (name || agent.name).slice(0, 16).toUpperCase(),
+    agentId: AGENTS[agentId] ? agentId : 'skullpepe',
+    color: agent.color,
+    speedMul: agent.speedMul,
+    maxHp,
     x: s.x,
     y: s.y,
     z: s.z,
@@ -70,7 +80,7 @@ function spawnPlayer(id, name) {
     vy: 0,
     vz: 0,
     grounded: true,
-    hp: PLAYER_HP,
+    hp: maxHp,
     kills: 0,
     deaths: 0,
     tokens: 0,
@@ -88,7 +98,9 @@ function publicPlayer(p) {
   return {
     id: p.id,
     name: p.name,
+    agentId: p.agentId,
     color: p.color,
+    maxHp: p.maxHp,
     x: p.x,
     y: p.y,
     z: p.z,
@@ -153,7 +165,7 @@ function resetMatch() {
     p.z = s.z;
     p.yaw = s.yaw;
     p.pitch = 0;
-    p.hp = PLAYER_HP;
+    p.hp = p.maxHp || PLAYER_HP;
     p.kills = 0;
     p.deaths = 0;
     p.tokens = 0;
@@ -306,7 +318,7 @@ wss.on('connection', (ws) => {
       if (playerId) return;
       playerId = uid();
       ws.playerId = playerId;
-      const p = spawnPlayer(playerId, msg.name);
+      const p = spawnPlayer(playerId, msg.name, msg.agentId);
       players.set(playerId, p);
       maybeStartMatch();
       send(ws, { type: 'welcome', id: playerId, player: publicPlayer(p), maxPlayers: MAX_PLAYERS });
@@ -326,7 +338,7 @@ wss.on('connection', (ws) => {
       p.pitch = pitch;
       const dt = TICK_MS / 1000;
 
-      const speed = msg.sprint ? 10.5 : 7.2;
+      const speed = (msg.sprint ? 10.5 : 7.2) * (p.speedMul || 1);
       let mx = 0;
       let mz = 0;
       if (msg.f) mz -= 1;
@@ -386,7 +398,7 @@ setInterval(() => {
       p.z = s.z + (Math.random() - 0.5) * 2;
       p.yaw = s.yaw;
       p.pitch = 0;
-      p.hp = PLAYER_HP;
+      p.hp = p.maxHp || PLAYER_HP;
       p.alive = true;
       p.respawnAt = 0;
       broadcast({ type: 'respawn', id: p.id, player: publicPlayer(p) });

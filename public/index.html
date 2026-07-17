@@ -18,17 +18,13 @@
         <p class="eyebrow">NSES BOND // CLASSIFIED</p>
         <h1>SKULL<span>BOND</span></h1>
         <p class="tag">RAD. BONES. NO COVER. ALL GUNS.</p>
-        <p class="blurb">GoldenEye-class facility deathmatch. Ray gun. Four agents. One scoreboard.</p>
+        <p class="blurb">GoldenEye-class facility deathmatch. Pick your fixed agent. Four players. One Facility.</p>
         <label class="name-field">
           CALLSIGN
           <input id="nameInput" maxlength="16" placeholder="AGENT ZERO" autocomplete="off" />
         </label>
-        <div class="cta-row">
-          <button id="joinBtn" class="cta">ENTER FACILITY</button>
-          <button id="soloBtn" class="cta cta-alt">SOLO OPS</button>
-        </div>
-        <p class="hint">WASD move · Mouse look · LMB / F / Ctrl shoot · Space jump · Shift sprint · Esc unlock</p>
-        <p class="hint">Multiplayer needs the Node server. On Vercel, use SOLO OPS (or it auto-falls back).</p>
+        <button id="toSelectBtn" class="cta">SELECT AGENT →</button>
+        <p class="hint">WASD · Mouse · LMB/F shoot · Space jump · Shift sprint</p>
         <p id="bootStatus" class="status"></p>
       </div>
     </div>
@@ -36,6 +32,40 @@
       <img src="/assets/style-sheet.png" alt="" />
       <img src="/assets/characters.png" alt="" />
       <img src="/assets/pitch.png" alt="" />
+    </div>
+    <div class="check-bot"></div>
+  </div>
+
+  <!-- GoldenEye-style multi character select -->
+  <div id="selectScreen" class="hidden">
+    <div class="check-top"></div>
+    <div class="select-wrap">
+      <header class="select-head">
+        <p class="eyebrow">NSES ROSTER // FIXED OPERATIVES</p>
+        <h2>SELECT YOUR AGENT</h2>
+        <p class="select-sub">Six bones. One badge. No swaps mid-run.</p>
+      </header>
+
+      <div class="select-grid" id="agentGrid"></div>
+
+      <aside class="select-dossier" id="dossier">
+        <div class="dossier-art" id="dossierArt"></div>
+        <div class="dossier-body">
+          <p class="dossier-slot" id="dossierSlot">#01</p>
+          <h3 id="dossierName">SKULL PEPE</h3>
+          <p class="dossier-code" id="dossierCode">CHAOS ONE</p>
+          <p class="dossier-bio" id="dossierBio"></p>
+          <p class="dossier-lore" id="dossierLore"></p>
+          <div class="dossier-stats" id="dossierStats"></div>
+          <p class="dossier-tip" id="dossierTip"></p>
+          <div class="cta-row">
+            <button id="joinBtn" class="cta">ENTER FACILITY</button>
+            <button id="soloBtn" class="cta cta-alt">SOLO OPS</button>
+            <button id="backBoot" class="cta cta-ghost">BACK</button>
+          </div>
+          <p id="selectStatus" class="status"></p>
+        </div>
+      </aside>
     </div>
     <div class="check-bot"></div>
   </div>
@@ -78,6 +108,7 @@
     <div id="killFeed"></div>
     <div id="scoreboard"></div>
     <div id="weaponName">PP7 RAY</div>
+    <div id="agentTag"></div>
     <div id="centerMsg"></div>
   </div>
 
