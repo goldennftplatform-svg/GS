@@ -23,10 +23,13 @@ html, body {
 #game {
   position: fixed;
   inset: 0;
+  z-index: 1;
   width: 100%;
   height: 100%;
   display: block;
   background: #111;
+  outline: none;
+  cursor: crosshair;
 }
 
 .hidden { display: none !important; }
@@ -60,12 +63,56 @@ html, body {
   width: 100%;
 }
 
+.boot-fps .boot-hero-art {
+  position: relative;
+}
+
 .boot-art {
   width: 100%;
   max-height: 62vh;
-  object-fit: contain;
+  object-fit: cover;
+  object-position: 40% 15%;
+  border: 3px solid #111;
   filter: drop-shadow(0 18px 30px rgba(0,0,0,0.35));
+  background: #111;
 }
+
+.boot-badge {
+  position: absolute;
+  left: 0.75rem;
+  bottom: 0.75rem;
+  font-family: "Press Start 2P", monospace;
+  font-size: 9px;
+  background: var(--green);
+  color: #081208;
+  border: 2px solid #111;
+  padding: 0.45rem 0.6rem;
+}
+
+.boot-bullets {
+  list-style: none;
+  margin: 0 0 1.2rem;
+  padding: 0;
+  font-family: "Press Start 2P", monospace;
+  font-size: 8px;
+  line-height: 1.7;
+  color: #222;
+}
+
+.boot-bullets li {
+  margin-bottom: 0.35rem;
+  padding-left: 1rem;
+  position: relative;
+}
+
+.boot-bullets li::before {
+  content: "▸";
+  position: absolute;
+  left: 0;
+  color: var(--green-dark);
+}
+
+.boot-bullets strong { color: var(--red); }
 
 .boot-copy .eyebrow {
   font-family: "Press Start 2P", monospace;
@@ -174,23 +221,6 @@ html, body {
   color: var(--red);
 }
 
-.boot-strip {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 0.5rem;
-  padding: 0.5rem 1rem 1rem;
-  max-height: 140px;
-}
-
-.boot-strip img {
-  width: 100%;
-  height: 120px;
-  object-fit: cover;
-  object-position: top;
-  border: 2px solid #111;
-  opacity: 0.9;
-}
-
 #hud {
   position: fixed;
   inset: 0;
@@ -269,17 +299,10 @@ html, body {
   font-size: 12px;
 }
 
-.hud-stats .mini-ico {
-  width: 18px;
-  height: 18px;
-  object-fit: cover;
-  border-radius: 50%;
-  vertical-align: middle;
-  margin-right: 0.35rem;
-  border: 1px solid #111;
-}
+.tok, .skull { margin-right: 0.35rem; color: var(--green); }
 
-.skull { margin-right: 0.35rem; color: var(--green); }
+#hud { z-index: 5; }
+#boot, #selectScreen { z-index: 20; }
 
 #crosshair {
   position: absolute;

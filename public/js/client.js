@@ -911,8 +911,10 @@ function beginMission(title) {
   selectScreen?.classList.add('hidden');
   hud.classList.remove('hidden');
   overlay.classList.add('hidden');
-  showCenter(title, 2000);
-  canvas.requestPointerLock();
+  showCenter(title + ' · CLICK TO LOCK MOUSE', 2400);
+  canvas.focus();
+  // May fail outside direct gesture — LMB handler will lock + fire anyway
+  tryPointerLock();
 }
 
 function endMatch(standings) {
@@ -1439,7 +1441,7 @@ addEventListener('keydown', (e) => {
     keys.shootHeld = true;
     shootPulse = true;
   }
-  if (e.code === 'KeyR' && myId && !pointerLocked) canvas.requestPointerLock();
+  if (e.code === 'KeyR' && inMatch()) tryPointerLock();
 });
 
 addEventListener('keyup', (e) => {
@@ -1453,30 +1455,63 @@ addEventListener('keyup', (e) => {
   }
 });
 
-// Pointer-lock clicks must listen on document (canvas misses them after lock)
-document.addEventListener('mousedown', (e) => {
-  if (!myId || e.button !== 0) return;
-  if (!pointerLocked) {
-    canvas.requestPointerLock();
-    return;
-  }
+function inMatch() {
+  return !!myId && !hud.classList.contains('hidden');
+}
+
+function tryPointerLock() {
+  if (document.pointerLockElement === canvas) return;
+  const req = canvas.requestPointerLock?.();
+  if (req && typeof req.catch === 'function') req.catch(() => {});
+}
+
+function firePrimary() {
+  if (!inMatch() || !localAlive) return;
   keys.shootHeld = true;
   shootPulse = true;
-});
-document.addEventListener('mouseup', (e) => {
-  if (e.button === 0) keys.shootHeld = false;
+}
+
+// NEVER gate shooting on pointer lock — lock failing used to eat every LMB
+document.addEventListener(
+  'pointerdown',
+  (e) => {
+    if (!inMatch()) return;
+    if (e.button === 0 || e.buttons === 1) {
+      e.preventDefault();
+      tryPointerLock();
+      firePrimary();
+      canvas.focus();
+    }
+  },
+  true
+);
+
+document.addEventListener(
+  'pointerup',
+  (e) => {
+    if (e.button === 0) keys.shootHeld = false;
+  },
+  true
+);
+
+document.addEventListener('contextmenu', (e) => {
+  if (inMatch()) e.preventDefault();
 });
 
 document.addEventListener('pointerlockchange', () => {
   pointerLocked = document.pointerLockElement === canvas;
-  if (!pointerLocked) keys.shootHeld = false;
 });
 
 addEventListener('mousemove', (e) => {
+  pointerLocked = document.pointerLockElement === canvas;
   if (!pointerLocked) return;
   yaw -= e.movementX * 0.0024;
   pitch -= e.movementY * 0.0024;
   pitch = Math.max(-1.4, Math.min(1.4, pitch));
+  // Keep auto-fire while LMB held under pointer lock
+  if (e.buttons & 1) {
+    keys.shootHeld = true;
+  }
 });
 
 addEventListener('resize', () => {

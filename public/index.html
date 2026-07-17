@@ -12,38 +12,42 @@
 <body>
   <div id="boot">
     <div class="check-top"></div>
-    <div class="boot-inner">
-      <img class="boot-art" src="/assets/landing.png" alt="SKULL PEPE" />
+    <div class="boot-inner boot-fps">
+      <div class="boot-hero-art">
+        <img class="boot-art" src="/assets/style-sheet.png" alt="SKULL PEPE — PP7 RAY" />
+        <div class="boot-badge">4-PLAYER · FACILITY DM</div>
+      </div>
       <div class="boot-copy">
         <p class="eyebrow">NSES BOND // CLASSIFIED</p>
         <h1>SKULL<span>BOND</span></h1>
-        <p class="tag">RAD. BONES. NO COVER. ALL GUNS.</p>
-        <p class="blurb">GoldenEye-class facility deathmatch. Pick your fixed agent. Four players. One Facility.</p>
+        <p class="tag">FIRST PERSON. FIXED AGENTS. NO COVER.</p>
+        <p class="blurb">
+          GoldenEye-class Facility deathmatch. Pick one of six operatives.
+          Lock the PP7 Ray. Clear the lab. Top the board.
+        </p>
+        <ul class="boot-bullets">
+          <li>FPS deathmatch — not a skate game</li>
+          <li>6 fixed agents · 4 players max</li>
+          <li>WASD · mouse look · <strong>LMB fire</strong> · Space jump</li>
+        </ul>
         <label class="name-field">
           CALLSIGN
           <input id="nameInput" maxlength="16" placeholder="AGENT ZERO" autocomplete="off" />
         </label>
         <button id="toSelectBtn" class="cta">SELECT AGENT →</button>
-        <p class="hint">WASD · Mouse · LMB/F shoot · Space jump · Shift sprint</p>
         <p id="bootStatus" class="status"></p>
       </div>
-    </div>
-    <div class="boot-strip">
-      <img src="/assets/style-sheet.png" alt="" />
-      <img src="/assets/characters.png" alt="" />
-      <img src="/assets/pitch.png" alt="" />
     </div>
     <div class="check-bot"></div>
   </div>
 
-  <!-- GoldenEye-style multi character select -->
   <div id="selectScreen" class="hidden">
     <div class="check-top"></div>
     <div class="select-wrap">
       <header class="select-head">
         <p class="eyebrow">NSES ROSTER // FIXED OPERATIVES</p>
         <h2>SELECT YOUR AGENT</h2>
-        <p class="select-sub">Six bones. One badge. No swaps mid-run.</p>
+        <p class="select-sub">Six operatives. One Facility. No mid-match swaps.</p>
       </header>
 
       <div class="select-grid" id="agentGrid"></div>
@@ -99,7 +103,7 @@
         <div id="energyBar"></div>
       </div>
       <div class="hud-stats">
-        <div><img src="/assets/style-sheet.png" class="mini-ico" alt="" /><span id="hudTokens">x 00</span></div>
+        <div><span class="tok">◎</span><span id="hudTokens">x 00</span></div>
         <div><span class="skull">☠</span><span id="hudLives">x 03</span></div>
         <div class="kd"><span id="hudKills">0</span>/<span id="hudDeaths">0</span></div>
       </div>
@@ -107,7 +111,7 @@
 
     <div id="killFeed"></div>
     <div id="scoreboard"></div>
-    <div id="weaponName">PP7 RAY</div>
+    <div id="weaponName">PP7 RAY · LMB FIRE</div>
     <div id="agentTag"></div>
     <div id="centerMsg"></div>
   </div>
@@ -120,7 +124,7 @@
     </div>
   </div>
 
-  <canvas id="game"></canvas>
+  <canvas id="game" tabindex="0"></canvas>
 
   <script type="importmap">
   {
