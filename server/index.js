@@ -9,16 +9,19 @@ const TICK_MS = 50;
 const MATCH_SECONDS = 180;
 const PLAYER_HP = 100;
 const WEAPON_DAMAGE = 34;
-const FIRE_COOLDOWN_MS = 220;
+const FIRE_COOLDOWN_MS = 180;
 const RESPAWN_MS = 2500;
-const HIT_RADIUS = 0.85;
-const PLAYER_HEIGHT = 1.6;
+const HIT_RADIUS = 0.95;
+const PLAYER_HEIGHT = 1.65;
+const MAP_HALF = 46;
+const GRAVITY = 28;
+const JUMP_VEL = 9.5;
 
 const SPAWNS = [
-  { x: -18, y: PLAYER_HEIGHT, z: -18, yaw: Math.PI / 4 },
-  { x: 18, y: PLAYER_HEIGHT, z: -18, yaw: (3 * Math.PI) / 4 },
-  { x: -18, y: PLAYER_HEIGHT, z: 18, yaw: -Math.PI / 4 },
-  { x: 18, y: PLAYER_HEIGHT, z: 18, yaw: (-3 * Math.PI) / 4 },
+  { x: -38, y: PLAYER_HEIGHT, z: -38, yaw: Math.PI / 4 },
+  { x: 38, y: PLAYER_HEIGHT, z: -38, yaw: (3 * Math.PI) / 4 },
+  { x: -38, y: PLAYER_HEIGHT, z: 38, yaw: -Math.PI / 4 },
+  { x: 38, y: PLAYER_HEIGHT, z: 38, yaw: (-3 * Math.PI) / 4 },
 ];
 
 const COLORS = ['#6BAF6E', '#E5392D', '#B56A4D', '#8E8E8E'];
@@ -64,7 +67,9 @@ function spawnPlayer(id, name) {
     yaw: s.yaw,
     pitch: 0,
     vx: 0,
+    vy: 0,
     vz: 0,
+    grounded: true,
     hp: PLAYER_HP,
     kills: 0,
     deaths: 0,
@@ -160,16 +165,24 @@ function resetMatch() {
 }
 
 function clampArena(p) {
-  const lim = 22;
-  p.x = Math.max(-lim, Math.min(lim, p.x));
-  p.z = Math.max(-lim, Math.min(lim, p.z));
-  // Simple wall blocks (Facility-style pillars)
+  p.x = Math.max(-MAP_HALF, Math.min(MAP_HALF, p.x));
+  p.z = Math.max(-MAP_HALF, Math.min(MAP_HALF, p.z));
   const blocks = [
-    { x: 0, z: 0, r: 2.2 },
-    { x: -10, z: 0, r: 1.6 },
-    { x: 10, z: 0, r: 1.6 },
-    { x: 0, z: -10, r: 1.6 },
-    { x: 0, z: 10, r: 1.6 },
+    { x: 0, z: 0, r: 3.2 },
+    { x: -8, z: -8, r: 1.5 },
+    { x: 8, z: -8, r: 1.5 },
+    { x: -8, z: 8, r: 1.5 },
+    { x: 8, z: 8, r: 1.5 },
+    { x: -12, z: 0, r: 1.5 },
+    { x: 12, z: 0, r: 1.5 },
+    { x: 0, z: -12, r: 1.5 },
+    { x: 0, z: 12, r: 1.5 },
+    { x: -20, z: -18, r: 1.4 },
+    { x: 20, z: -18, r: 1.4 },
+    { x: -20, z: 18, r: 1.4 },
+    { x: 20, z: 18, r: 1.4 },
+    { x: 0, z: -18, r: 1.7 },
+    { x: 0, z: 18, r: 1.7 },
   ];
   for (const b of blocks) {
     const dx = p.x - b.x;
@@ -180,6 +193,20 @@ function clampArena(p) {
       p.x += dx * push;
       p.z += dz * push;
     }
+  }
+}
+
+function applyJumpPhysics(p, wantJump, dt) {
+  if (wantJump && p.grounded) {
+    p.vy = JUMP_VEL;
+    p.grounded = false;
+  }
+  p.vy -= GRAVITY * dt;
+  p.y += p.vy * dt;
+  if (p.y <= PLAYER_HEIGHT) {
+    p.y = PLAYER_HEIGHT;
+    p.vy = 0;
+    p.grounded = true;
   }
 }
 
@@ -195,7 +222,7 @@ function tryShoot(shooter) {
   const dirZ = -Math.cos(shooter.yaw) * Math.cos(shooter.pitch);
 
   let best = null;
-  let bestT = 48;
+  let bestT = 70;
 
   for (const target of players.values()) {
     if (target.id === shooter.id || !target.alive) continue;
@@ -221,9 +248,9 @@ function tryShoot(shooter) {
   }
 
   const impact = {
-    x: shooter.x + dirX * Math.min(bestT, 40),
-    y: shooter.y + dirY * Math.min(bestT, 40),
-    z: shooter.z + dirZ * Math.min(bestT, 40),
+    x: shooter.x + dirX * Math.min(bestT, 60),
+    y: shooter.y + dirY * Math.min(bestT, 60),
+    z: shooter.z + dirZ * Math.min(bestT, 60),
   };
 
   broadcast({
@@ -297,8 +324,9 @@ wss.on('connection', (ws) => {
       const pitch = Math.max(-1.4, Math.min(1.4, Number(msg.pitch) || 0));
       p.yaw = yaw;
       p.pitch = pitch;
+      const dt = TICK_MS / 1000;
 
-      const speed = msg.sprint ? 9.5 : 6.2;
+      const speed = msg.sprint ? 10.5 : 7.2;
       let mx = 0;
       let mz = 0;
       if (msg.f) mz -= 1;
@@ -313,10 +341,11 @@ wss.on('connection', (ws) => {
         const sin = Math.sin(yaw);
         const dx = mx * cos + mz * sin;
         const dz = -mx * sin + mz * cos;
-        p.x += dx * speed * (TICK_MS / 1000);
-        p.z += dz * speed * (TICK_MS / 1000);
+        p.x += dx * speed * dt;
+        p.z += dz * speed * dt;
         clampArena(p);
       }
+      applyJumpPhysics(p, !!msg.jump, dt);
       if (msg.shoot) tryShoot(p);
       else p.shooting = false;
       return;

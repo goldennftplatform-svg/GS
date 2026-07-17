@@ -1,0 +1,18 @@
+SKULLBOND — Blender MCP setup (Windows)
+
+1) Blender is at: C:\Program Files\Blender Foundation\Blender 5.1
+2) Cursor MCP is already wired in:
+   - Project: .cursor/mcp.json
+   - Global:  C:\Users\PreSafu\.cursor\mcp.json
+   Uses: C:\Users\PreSafu\.local\bin\uvx.exe blender-mcp
+
+3) Install the addon in Blender:
+   - Open Blender → Edit → Preferences → Add-ons → Install…
+   - Pick: tools/blender-mcp/addon.py
+   - Enable "Interface: Blender MCP"
+
+4) In Blender 3D View press N → BlenderMCP tab → Connect
+
+5) Fully quit + relaunch Cursor so the blender MCP server shows green
+
+Then ask the agent to export Facility props / agents as GLB into public/assets/
