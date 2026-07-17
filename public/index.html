@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SKULLBOND — NSES FACILITY</title>
+  <link rel="stylesheet" href="/css/style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Black+Ops+One&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <div id="boot">
+    <div class="check-top"></div>
+    <div class="boot-inner">
+      <img class="boot-art" src="/assets/landing.png" alt="SKULL PEPE" />
+      <div class="boot-copy">
+        <p class="eyebrow">NSES BOND // CLASSIFIED</p>
+        <h1>SKULL<span>BOND</span></h1>
+        <p class="tag">RAD. BONES. NO COVER. ALL GUNS.</p>
+        <p class="blurb">GoldenEye-class facility deathmatch. Ray gun. Four agents. One scoreboard.</p>
+        <label class="name-field">
+          CALLSIGN
+          <input id="nameInput" maxlength="16" placeholder="AGENT ZERO" autocomplete="off" />
+        </label>
+        <button id="joinBtn" class="cta">ENTER FACILITY</button>
+        <p class="hint">WASD move · Mouse look · Click shoot · Shift sprint · Esc release mouse</p>
+        <p id="bootStatus" class="status"></p>
+      </div>
+    </div>
+    <div class="boot-strip">
+      <img src="/assets/style-sheet.png" alt="" />
+      <img src="/assets/characters.png" alt="" />
+      <img src="/assets/pitch.png" alt="" />
+    </div>
+    <div class="check-bot"></div>
+  </div>
+
+  <div id="hud" class="hidden">
+    <div class="hud-top">
+      <div class="hud-score">
+        <span class="label">SCORE</span>
+        <span id="hudScore">000000</span>
+      </div>
+      <div class="hud-time">
+        <span class="bolt">⚡</span>
+        <span id="hudTime">180</span>
+      </div>
+      <div class="hud-players">
+        <span class="label">AGENTS</span>
+        <span id="hudCount">1/4</span>
+      </div>
+    </div>
+
+    <div id="crosshair">+</div>
+    <div id="hitMarker"></div>
+    <div id="damageVignette"></div>
+
+    <div class="hud-bottom">
+      <div class="hud-health">
+        <span class="label">HEALTH</span>
+        <div id="hearts"></div>
+      </div>
+      <div class="hud-meter">
+        <div id="energyBar"></div>
+      </div>
+      <div class="hud-stats">
+        <div><img src="/assets/style-sheet.png" class="mini-ico" alt="" /><span id="hudTokens">x 00</span></div>
+        <div><span class="skull">☠</span><span id="hudLives">x 03</span></div>
+        <div class="kd"><span id="hudKills">0</span>/<span id="hudDeaths">0</span></div>
+      </div>
+    </div>
+
+    <div id="killFeed"></div>
+    <div id="scoreboard"></div>
+    <div id="weaponName">PP7 RAY</div>
+    <div id="centerMsg"></div>
+  </div>
+
+  <div id="overlay" class="hidden">
+    <div class="overlay-card">
+      <h2 id="overlayTitle">MISSION COMPLETE</h2>
+      <ol id="standings"></ol>
+      <p class="hint">Next match arms in a few seconds…</p>
+    </div>
+  </div>
+
+  <canvas id="game"></canvas>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.170.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.170.0/examples/jsm/"
+    }
+  }
+  </script>
+  <script type="module" src="/js/client.js"></script>
+</body>
+</html>
