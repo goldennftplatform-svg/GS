@@ -51,6 +51,24 @@ let lastHp = 100;
 let energy = 100;
 let ws = null;
 let localAlive = true;
+let offlineMode = false;
+let offlineMatch = null;
+
+const SPAWNS = [
+  { x: -18, y: 1.6, z: -18, yaw: Math.PI / 4 },
+  { x: 18, y: 1.6, z: -18, yaw: (3 * Math.PI) / 4 },
+  { x: -18, y: 1.6, z: 18, yaw: -Math.PI / 4 },
+  { x: 18, y: 1.6, z: 18, yaw: (-3 * Math.PI) / 4 },
+];
+const BOT_NAMES = ['AGENT PEPE', 'AGENT DAISY', 'AGENT BONES'];
+const BOT_COLORS = ['#E5392D', '#B56A4D', '#8E8E8E'];
+const BLOCKS = [
+  { x: 0, z: 0, r: 2.2 },
+  { x: -10, z: 0, r: 1.6 },
+  { x: 10, z: 0, r: 1.6 },
+  { x: 0, z: -10, r: 1.6 },
+  { x: 0, z: 10, r: 1.6 },
+];
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -358,6 +376,7 @@ function spawnTracer(origin, impact) {
 function resolveWsUrl() {
   const params = new URLSearchParams(location.search);
   const fromQuery = params.get('ws');
+  if (fromQuery) localStorage.setItem('skullbond-ws', fromQuery);
   const fromStorage = localStorage.getItem('skullbond-ws');
   const fromWindow = typeof window.SKULLBOND_WS === 'string' ? window.SKULLBOND_WS : '';
   const base = fromQuery || fromStorage || fromWindow;
@@ -372,12 +391,320 @@ function resolveWsUrl() {
   return `${proto}://${location.host}/ws`;
 }
 
-function connect(name) {
-  const url = resolveWsUrl();
-  if (new URLSearchParams(location.search).get('ws')) {
-    localStorage.setItem('skullbond-ws', new URLSearchParams(location.search).get('ws'));
+function isHostedStatic() {
+  return /\.vercel\.app$/i.test(location.hostname) || location.search.includes('solo=1');
+}
+
+function clampArena(p) {
+  const lim = 22;
+  p.x = Math.max(-lim, Math.min(lim, p.x));
+  p.z = Math.max(-lim, Math.min(lim, p.z));
+  for (const b of BLOCKS) {
+    const dx = p.x - b.x;
+    const dz = p.z - b.z;
+    const d = Math.hypot(dx, dz);
+    if (d < b.r + 0.45) {
+      const push = (b.r + 0.45 - d) / (d || 1);
+      p.x += dx * push;
+      p.z += dz * push;
+    }
   }
-  ws = new WebSocket(url);
+}
+
+function makeEntity(id, name, color, spawnIndex, bot = false) {
+  const s = SPAWNS[spawnIndex % SPAWNS.length];
+  return {
+    id,
+    name,
+    color,
+    x: s.x,
+    y: s.y,
+    z: s.z,
+    yaw: s.yaw,
+    pitch: 0,
+    hp: 100,
+    kills: 0,
+    deaths: 0,
+    tokens: 0,
+    lives: 3,
+    alive: true,
+    lastShot: 0,
+    respawnAt: 0,
+    spawnIndex,
+    bot,
+    think: 0,
+  };
+}
+
+function beginMission(title = 'MISSION: DEATHMATCH') {
+  boot.classList.add('hidden');
+  hud.classList.remove('hidden');
+  overlay.classList.add('hidden');
+  showCenter(title, 2000);
+  canvas.requestPointerLock();
+}
+
+function endMatch(standings) {
+  overlay.classList.remove('hidden');
+  els.overlayTitle.textContent = 'MISSION COMPLETE';
+  els.standings.innerHTML = standings
+    .map((s, i) => `<li>#${i + 1} ${s.name} — ${s.kills}K / ${s.deaths}D · ${s.tokens} TOK</li>`)
+    .join('');
+  document.exitPointerLock();
+  setTimeout(() => {
+    overlay.classList.add('hidden');
+    if (offlineMode) resetOfflineMatch();
+  }, 7500);
+}
+
+function pushFeed(text) {
+  if (!offlineMatch) return;
+  offlineMatch.killFeed.push({ t: Date.now(), text });
+  if (offlineMatch.killFeed.length > 12) offlineMatch.killFeed.shift();
+}
+
+function resetOfflineMatch() {
+  if (!offlineMatch) return;
+  offlineMatch.endsAt = Date.now() + 180000;
+  offlineMatch.killFeed = [];
+  offlineMatch.ended = false;
+  for (const p of offlineMatch.roster) {
+    const s = SPAWNS[p.spawnIndex % SPAWNS.length];
+    p.x = s.x;
+    p.y = s.y;
+    p.z = s.z;
+    p.yaw = s.yaw;
+    p.pitch = 0;
+    p.hp = 100;
+    p.kills = 0;
+    p.deaths = 0;
+    p.tokens = 0;
+    p.lives = 3;
+    p.alive = true;
+    p.respawnAt = 0;
+  }
+  const me = offlineMatch.roster.find((p) => p.id === myId);
+  if (me) {
+    yaw = me.yaw;
+    pitch = 0;
+    camera.position.set(me.x, me.y, me.z);
+  }
+  showCenter('SOLO OPS — NEXT ROUND', 1800);
+}
+
+function startOffline(name) {
+  offlineMode = true;
+  myId = 'local';
+  const me = makeEntity('local', (name || 'AGENT ZERO').slice(0, 16).toUpperCase(), '#6BAF6E', 0, false);
+  const bots = BOT_NAMES.map((n, i) => makeEntity(`bot${i}`, n, BOT_COLORS[i], i + 1, true));
+  offlineMatch = {
+    roster: [me, ...bots],
+    killFeed: [],
+    endsAt: Date.now() + 180000,
+    ended: false,
+  };
+  yaw = me.yaw;
+  pitch = 0;
+  camera.position.set(me.x, me.y, me.z);
+  localAlive = true;
+  lastHp = 100;
+  beginMission('SOLO OPS — 3 BOTS');
+  syncRemotes(offlineMatch.roster);
+  publishOfflineHud();
+}
+
+function publishOfflineHud() {
+  if (!offlineMatch) return;
+  const timeLeft = Math.max(0, Math.ceil((offlineMatch.endsAt - Date.now()) / 1000));
+  updateHud({
+    players: offlineMatch.roster,
+    killFeed: offlineMatch.killFeed,
+    timeLeft,
+    maxPlayers: 4,
+  });
+  syncRemotes(offlineMatch.roster);
+}
+
+function rayHit(shooter, targets) {
+  const dirX = Math.sin(shooter.yaw) * Math.cos(shooter.pitch);
+  const dirY = Math.sin(shooter.pitch);
+  const dirZ = -Math.cos(shooter.yaw) * Math.cos(shooter.pitch);
+  let best = null;
+  let bestT = 48;
+  for (const target of targets) {
+    if (target.id === shooter.id || !target.alive) continue;
+    const fx = shooter.x - target.x;
+    const fy = shooter.y - (target.y - 0.2);
+    const fz = shooter.z - target.z;
+    const b = fx * dirX + fy * dirY + fz * dirZ;
+    const c = fx * fx + fy * fy + fz * fz - 0.85 * 0.85;
+    const disc = b * b - c;
+    if (disc < 0) continue;
+    const t = -b - Math.sqrt(disc);
+    if (t > 0.2 && t < bestT) {
+      bestT = t;
+      best = target;
+    }
+  }
+  return {
+    best,
+    bestT,
+    impact: {
+      x: shooter.x + dirX * Math.min(bestT, 40),
+      y: shooter.y + dirY * Math.min(bestT, 40),
+      z: shooter.z + dirZ * Math.min(bestT, 40),
+    },
+    origin: { x: shooter.x, y: shooter.y, z: shooter.z },
+  };
+}
+
+function applyShot(shooter, now) {
+  if (!shooter.alive || now - shooter.lastShot < 220) return;
+  shooter.lastShot = now;
+  const { best, impact, origin } = rayHit(shooter, offlineMatch.roster);
+  spawnTracer(origin, impact);
+  if (shooter.id === myId) {
+    muzzleFlash.intensity = 3;
+    gunGroup.position.z = 0.04;
+    setTimeout(() => {
+      muzzleFlash.intensity = 0;
+      gunGroup.position.z = 0;
+    }, 50);
+  }
+  if (!best) return;
+  if (shooter.id === myId) {
+    els.hitMarker.classList.add('show');
+    setTimeout(() => els.hitMarker.classList.remove('show'), 90);
+  }
+  best.hp -= 34;
+  if (best.hp <= 0) {
+    best.hp = 0;
+    best.alive = false;
+    best.deaths += 1;
+    best.lives = Math.max(0, best.lives - 1);
+    best.respawnAt = now + 2500;
+    shooter.kills += 1;
+    shooter.tokens += 5;
+    const text = `${shooter.name} ⚡ ${best.name}`;
+    pushFeed(text);
+    showCenter(text, 1000);
+  }
+}
+
+function moveEntity(p, forward, strafe, sprint, dt) {
+  const speed = sprint ? 9.5 : 6.2;
+  let mx = strafe;
+  let mz = forward;
+  if (!mx && !mz) return;
+  const len = Math.hypot(mx, mz) || 1;
+  mx /= len;
+  mz /= len;
+  const cos = Math.cos(p.yaw);
+  const sin = Math.sin(p.yaw);
+  p.x += (mx * cos + mz * sin) * speed * dt;
+  p.z += (-mx * sin + mz * cos) * speed * dt;
+  clampArena(p);
+}
+
+function updateBots(dt, now) {
+  const me = offlineMatch.roster.find((p) => p.id === myId);
+  for (const bot of offlineMatch.roster.filter((p) => p.bot)) {
+    if (!bot.alive) continue;
+    bot.think -= dt;
+    const dx = me.x - bot.x;
+    const dz = me.z - bot.z;
+    const dist = Math.hypot(dx, dz);
+    bot.yaw = Math.atan2(dx, -dz) + Math.sin(now * 0.002 + bot.spawnIndex) * 0.15;
+    bot.pitch = -0.05;
+    if (dist > 4) {
+      moveEntity(bot, -1, Math.sin(now * 0.001 + bot.spawnIndex) * 0.4, dist > 12, dt);
+    } else if (dist < 2.5) {
+      moveEntity(bot, 1, 0.5, false, dt);
+    }
+    if (dist < 28 && Math.random() < 0.035) applyShot(bot, now);
+  }
+}
+
+function offlineTick(dt) {
+  if (!offlineMode || !offlineMatch || offlineMatch.ended) return;
+  const now = Date.now();
+  const me = offlineMatch.roster.find((p) => p.id === myId);
+  if (!me) return;
+
+  if (me.alive) {
+    me.yaw = yaw;
+    me.pitch = pitch;
+    let forward = 0;
+    let strafe = 0;
+    if (keys.f) forward -= 1;
+    if (keys.b) forward += 1;
+    if (keys.l) strafe -= 1;
+    if (keys.r) strafe += 1;
+    moveEntity(me, forward, strafe, keys.sprint, dt);
+    camera.position.set(me.x, me.y, me.z);
+    if (keys.shoot) applyShot(me, now);
+  }
+
+  updateBots(dt, now);
+
+  for (const p of offlineMatch.roster) {
+    if (!p.alive && p.respawnAt && now >= p.respawnAt) {
+      const s = SPAWNS[p.spawnIndex % SPAWNS.length];
+      p.x = s.x + (Math.random() - 0.5) * 2;
+      p.y = s.y;
+      p.z = s.z + (Math.random() - 0.5) * 2;
+      p.yaw = s.yaw;
+      p.hp = 100;
+      p.alive = true;
+      p.respawnAt = 0;
+      if (p.lives <= 0) p.lives = 3;
+      if (p.id === myId) {
+        yaw = p.yaw;
+        pitch = 0;
+        camera.position.set(p.x, p.y, p.z);
+      }
+    }
+  }
+
+  localAlive = me.alive;
+
+  if (now >= offlineMatch.endsAt) {
+    offlineMatch.ended = true;
+    const ranked = [...offlineMatch.roster].sort((a, b) => b.kills - a.kills || a.deaths - b.deaths);
+    endMatch(ranked);
+  }
+
+  publishOfflineHud();
+}
+
+function connect(name) {
+  if (isHostedStatic() && !localStorage.getItem('skullbond-ws') && !new URLSearchParams(location.search).get('ws')) {
+    bootStatus.textContent = 'NO GAME SERVER ON VERCEL — STARTING SOLO…';
+    setTimeout(() => startOffline(name), 350);
+    return;
+  }
+
+  const url = resolveWsUrl();
+  let settled = false;
+  const failToSolo = (why) => {
+    if (settled || myId || offlineMode) return;
+    settled = true;
+    try {
+      ws && ws.close();
+    } catch {}
+    localStorage.removeItem('skullbond-ws');
+    bootStatus.textContent = `${why} — SOLO OPS`;
+    setTimeout(() => startOffline(name), 400);
+  };
+
+  try {
+    ws = new WebSocket(url);
+  } catch {
+    failToSolo('LINK FAILED');
+    return;
+  }
+
+  const timer = setTimeout(() => failToSolo('UPLINK TIMEOUT'), 2500);
 
   ws.onopen = () => {
     bootStatus.textContent = 'LINKED — ARMING…';
@@ -385,12 +712,14 @@ function connect(name) {
   };
 
   ws.onerror = () => {
-    bootStatus.textContent = 'LINK FAILED — IS THE SERVER UP?';
+    clearTimeout(timer);
+    failToSolo('LINK FAILED');
   };
 
   ws.onclose = () => {
-    if (!myId) bootStatus.textContent = 'DISCONNECTED';
-    else showCenter('CONNECTION LOST', 4000);
+    clearTimeout(timer);
+    if (!myId && !offlineMode) failToSolo('DISCONNECTED');
+    else if (myId && !offlineMode) showCenter('CONNECTION LOST', 4000);
   };
 
   ws.onmessage = (ev) => {
@@ -402,16 +731,19 @@ function connect(name) {
     }
 
     if (msg.type === 'error') {
+      clearTimeout(timer);
       bootStatus.textContent = msg.message;
+      joinBtn.disabled = false;
+      soloBtn.disabled = false;
       return;
     }
 
     if (msg.type === 'welcome') {
+      settled = true;
+      clearTimeout(timer);
+      offlineMode = false;
       myId = msg.id;
-      boot.classList.add('hidden');
-      hud.classList.remove('hidden');
-      showCenter('MISSION: DEATHMATCH', 2000);
-      canvas.requestPointerLock();
+      beginMission('MISSION: DEATHMATCH');
       return;
     }
 
@@ -444,20 +776,13 @@ function connect(name) {
     }
 
     if (msg.type === 'matchEnd') {
-      overlay.classList.remove('hidden');
-      els.overlayTitle.textContent = 'MISSION COMPLETE';
-      els.standings.innerHTML = msg.standings
-        .map((s, i) => `<li>#${i + 1} ${s.name} — ${s.kills}K / ${s.deaths}D · ${s.tokens} TOK</li>`)
-        .join('');
-      document.exitPointerLock();
-      setTimeout(() => overlay.classList.add('hidden'), 7500);
-      return;
+      endMatch(msg.standings);
     }
   };
 }
 
 function sendInput() {
-  if (!ws || ws.readyState !== 1 || !myId) return;
+  if (offlineMode || !ws || ws.readyState !== 1 || !myId) return;
   ws.send(
     JSON.stringify({
       type: 'input',
@@ -473,17 +798,28 @@ function sendInput() {
   );
 }
 
-joinBtn.addEventListener('click', () => {
+const soloBtn = document.getElementById('soloBtn');
+
+function armJoin(mode) {
   const name = (nameInput.value || localStorage.getItem('skullbond-name') || 'AGENT ZERO').trim();
   localStorage.setItem('skullbond-name', name);
-  bootStatus.textContent = 'ESTABLISHING UPLINK…';
   joinBtn.disabled = true;
+  soloBtn.disabled = true;
+  if (mode === 'solo') {
+    bootStatus.textContent = 'LOADING SOLO OPS…';
+    startOffline(name);
+    return;
+  }
+  bootStatus.textContent = 'ESTABLISHING UPLINK…';
   connect(name);
-});
+}
+
+joinBtn.addEventListener('click', () => armJoin('net'));
+soloBtn.addEventListener('click', () => armJoin('solo'));
 
 nameInput.value = localStorage.getItem('skullbond-name') || '';
 nameInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') joinBtn.click();
+  if (e.key === 'Enter') armJoin(isHostedStatic() ? 'solo' : 'net');
 });
 
 addEventListener('keydown', (e) => {
@@ -538,7 +874,8 @@ buildFacility();
 const clock = new THREE.Clock();
 function tick() {
   requestAnimationFrame(tick);
-  const t = clock.getElapsedTime();
+  const dt = Math.min(0.05, clock.getDelta());
+  const t = clock.elapsedTime;
 
   scene.traverse((o) => {
     if (o.userData.spin) {
@@ -551,11 +888,12 @@ function tick() {
   camera.rotation.y = yaw;
   camera.rotation.x = pitch;
 
-  // Subtle gun sway
   gunGroup.position.x = Math.sin(t * 2.2) * 0.008;
   gunGroup.position.y = Math.cos(t * 3.1) * 0.006;
 
-  sendInput();
+  if (offlineMode) offlineTick(dt);
+  else sendInput();
+
   renderer.render(scene, camera);
 }
 tick();
