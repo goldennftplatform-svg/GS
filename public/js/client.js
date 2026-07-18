@@ -179,9 +179,10 @@ function mountRaygun() {
     fallbackGun();
   } else {
     const gun = models.raygun.clone(true);
-    gun.scale.setScalar(0.55);
+    gun.scale.setScalar(0.45);
+    // Point down camera -Z (forward). Don't yaw the viewmodel 90° off-axis.
     gun.rotation.set(0, Math.PI, 0);
-    gun.position.set(0.28, -0.28, -0.55);
+    gun.position.set(0.22, -0.2, -0.45);
     gun.traverse((o) => {
       if (o.isMesh) {
         o.castShadow = true;
@@ -891,109 +892,80 @@ function spawnImpact(x, y, z, hitSomeone) {
   }, 120);
 }
 
-function spawnTracer(origin, impact) {
-  const start = new THREE.Vector3(origin.x, origin.y, origin.z);
-  const end = new THREE.Vector3(impact.x, impact.y, impact.z);
-  const dir = end.clone().sub(start);
-  const len = dir.length();
-  if (len < 0.05) return;
-  dir.multiplyScalar(1 / len);
+const _aimOrigin = new THREE.Vector3();
+const _aimDir = new THREE.Vector3();
+const _aimEnd = new THREE.Vector3();
+const _yAxis = new THREE.Vector3(0, 1, 0);
+
+/** Sync look angles onto the camera and return true aim ray (where you look). */
+function getAimRay() {
+  camera.rotation.order = 'YXZ';
+  camera.rotation.y = yaw;
+  camera.rotation.x = pitch;
+  camera.rotation.z = 0;
+  camera.updateMatrixWorld(true);
+  _aimOrigin.copy(camera.position);
+  camera.getWorldDirection(_aimDir); // camera forward (-Z) in world space
+  if (_aimDir.lengthSq() < 1e-6) _aimDir.set(0, 0, -1);
+  else _aimDir.normalize();
+  return { origin: _aimOrigin, dir: _aimDir };
+}
+
+function spawnTracer(origin, dir, dist = 48) {
+  const len = Math.max(0.5, dist);
+  _aimEnd.copy(origin).addScaledVector(dir, len);
   const beam = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.05, 0.02, len, 6),
+    new THREE.CylinderGeometry(0.04, 0.015, len, 6),
     new THREE.MeshBasicMaterial({ color: 0x9dff9a })
   );
-  beam.position.copy(start).addScaledVector(dir, len * 0.5);
-  const up = new THREE.Vector3(0, 1, 0);
-  if (Math.abs(dir.dot(up)) > 0.99) up.set(1, 0, 0);
-  beam.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+  beam.position.copy(origin).addScaledVector(dir, len * 0.5);
+  beam.quaternion.setFromUnitVectors(_yAxis, dir);
   scene.add(beam);
   setTimeout(() => {
     scene.remove(beam);
     beam.geometry.dispose();
     beam.material.dispose();
-  }, 70);
+  }, 60);
 }
 
-function spawnBolt(origin, yaw, pitch, fromId) {
-  // Hard cap — leftover bolts + lights were melting the frame
+function spawnBolt(origin, dir, fromId) {
   while (bolts.length >= MAX_BOLTS) {
     const old = bolts.shift();
     scene.remove(old.mesh);
     old.mesh.geometry.dispose();
     old.mesh.material.dispose();
   }
-  const dirX = Math.sin(yaw) * Math.cos(pitch);
-  const dirY = Math.sin(pitch);
-  const dirZ = -Math.cos(yaw) * Math.cos(pitch);
   const mesh = new THREE.Mesh(
-    new THREE.SphereGeometry(0.2, 8, 8),
+    new THREE.SphereGeometry(0.16, 8, 8),
     new THREE.MeshBasicMaterial({ color: 0x6baf6e })
   );
-  mesh.position.set(origin.x + dirX * 1.1, origin.y + dirY * 1.1, origin.z + dirZ * 1.1);
+  mesh.position.copy(origin).addScaledVector(dir, 1.2);
   scene.add(mesh);
   bolts.push({
     mesh,
-    vx: dirX * BOLT_SPEED,
-    vy: dirY * BOLT_SPEED,
-    vz: dirZ * BOLT_SPEED,
+    vx: dir.x * BOLT_SPEED,
+    vy: dir.y * BOLT_SPEED,
+    vz: dir.z * BOLT_SPEED,
     life: BOLT_LIFE,
     fromId,
   });
 }
 
 function updateBolts(dt) {
+  // Visual only — damage is hitscan in applyShot
   for (let i = bolts.length - 1; i >= 0; i--) {
     const b = bolts[i];
     b.life -= dt;
     b.mesh.position.x += b.vx * dt;
     b.mesh.position.y += b.vy * dt;
     b.mesh.position.z += b.vz * dt;
-
-    let hit = null;
-    if (offlineMatch) {
-      for (const t of offlineMatch.roster) {
-        if (!t.alive || t.id === b.fromId) continue;
-        const dx = b.mesh.position.x - t.x;
-        const dy = b.mesh.position.y - t.y;
-        const dz = b.mesh.position.z - t.z;
-        if (dx * dx + dy * dy + dz * dz < 1.2 * 1.2) {
-          hit = t;
-          break;
-        }
-      }
-    }
-
     const out =
       b.life <= 0 ||
       Math.abs(b.mesh.position.x) > HALF ||
       Math.abs(b.mesh.position.z) > HALF ||
       b.mesh.position.y < 0 ||
       b.mesh.position.y > 12;
-
-    if (hit || out) {
-      spawnImpact(b.mesh.position.x, b.mesh.position.y, b.mesh.position.z, !!hit);
-      if (hit) {
-        hit.hp -= DMG;
-        if (b.fromId === myId) {
-          els.hitMarker.classList.add('show');
-          setTimeout(() => els.hitMarker.classList.remove('show'), 140);
-        }
-        if (hit.hp <= 0) {
-          hit.hp = 0;
-          hit.alive = false;
-          hit.deaths += 1;
-          hit.lives = Math.max(0, hit.lives - 1);
-          hit.respawnAt = Date.now() + 2500;
-          const killer = offlineMatch?.roster.find((p) => p.id === b.fromId);
-          if (killer) {
-            killer.kills += 1;
-            killer.tokens += 5;
-            const text = `${killer.name} ⚡ ${hit.name}`;
-            pushFeed(text);
-            showCenter(text, 900);
-          }
-        }
-      }
+    if (out) {
       scene.remove(b.mesh);
       b.mesh.geometry.dispose();
       b.mesh.material.dispose();
@@ -1206,26 +1178,76 @@ function rayHit(shooter) {
   };
 }
 
+function dirFromYawPitch(yaw0, pitch0, out = new THREE.Vector3()) {
+  // Match Three.js camera forward for YXZ euler (look down -Z at 0,0)
+  const cp = Math.cos(pitch0);
+  out.set(Math.sin(yaw0) * cp, -Math.sin(pitch0), -Math.cos(yaw0) * cp);
+  return out.normalize();
+}
+
 function applyShot(shooter, now) {
   if (!shooter.alive || now - shooter.lastShot < FIRE_MS) return false;
   shooter.lastShot = now;
-  const origin = { x: shooter.x, y: shooter.y, z: shooter.z };
-  // Instant visible beam + flying plasma bolt (damage on bolt contact)
-  const aimDist = 40;
-  const dirX = Math.sin(shooter.yaw) * Math.cos(shooter.pitch);
-  const dirY = Math.sin(shooter.pitch);
-  const dirZ = -Math.cos(shooter.yaw) * Math.cos(shooter.pitch);
-  spawnTracer(origin, {
-    x: origin.x + dirX * aimDist,
-    y: origin.y + dirY * aimDist,
-    z: origin.z + dirZ * aimDist,
-  });
-  spawnBolt(origin, shooter.yaw, shooter.pitch, shooter.id);
+
+  let origin;
+  let dir;
+  if (shooter.id === myId) {
+    // Local player: ALWAYS shoot where the camera looks (fixes "laser goes right")
+    const aim = getAimRay();
+    origin = aim.origin;
+    dir = aim.dir.clone();
+    shooter.yaw = yaw;
+    shooter.pitch = pitch;
+  } else {
+    origin = new THREE.Vector3(shooter.x, shooter.y, shooter.z);
+    dir = dirFromYawPitch(shooter.yaw, shooter.pitch);
+  }
+
+  spawnTracer(origin, dir, 48);
+  spawnBolt(origin, dir, shooter.id);
+
+  // Instant hitscan (bolt is VFX only — avoid double damage)
+  if (offlineMatch) {
+    let best = null;
+    let bestT = 55;
+    const tgt = new THREE.Vector3();
+    const closest = new THREE.Vector3();
+    for (const target of offlineMatch.roster) {
+      if (target.id === shooter.id || !target.alive) continue;
+      tgt.set(target.x, target.y, target.z);
+      const t = closest.copy(tgt).sub(origin).dot(dir);
+      if (t < 0.5 || t > bestT) continue;
+      closest.copy(origin).addScaledVector(dir, t);
+      if (closest.distanceTo(tgt) < 1.2) {
+        bestT = t;
+        best = target;
+      }
+    }
+    if (best) {
+      best.hp -= DMG;
+      spawnImpact(origin.x + dir.x * bestT, origin.y + dir.y * bestT, origin.z + dir.z * bestT, true);
+      if (shooter.id === myId) {
+        els.hitMarker.classList.add('show');
+        setTimeout(() => els.hitMarker.classList.remove('show'), 140);
+      }
+      if (best.hp <= 0) {
+        best.hp = 0;
+        best.alive = false;
+        best.deaths += 1;
+        best.lives = Math.max(0, best.lives - 1);
+        best.respawnAt = now + 2500;
+        shooter.kills += 1;
+        shooter.tokens += 5;
+        const text = `${shooter.name} ⚡ ${best.name}`;
+        pushFeed(text);
+        showCenter(text, 900);
+      }
+    }
+  }
+
   if (shooter.id === myId) {
     flashMuzzle();
     playZap();
-    // Tiny view kick so you feel the shot
-    pitch = Math.max(-1.4, pitch - 0.03);
   }
   return true;
 }
@@ -1609,20 +1631,9 @@ function firePrimary() {
     const me = offlineMatch.roster.find((p) => p.id === myId);
     if (me?.alive) applyShot(me, now);
   } else {
-    const origin = {
-      x: camera.position.x,
-      y: camera.position.y,
-      z: camera.position.z,
-    };
-    const dirX = Math.sin(yaw) * Math.cos(pitch);
-    const dirY = Math.sin(pitch);
-    const dirZ = -Math.cos(yaw) * Math.cos(pitch);
-    spawnTracer(origin, {
-      x: origin.x + dirX * 40,
-      y: origin.y + dirY * 40,
-      z: origin.z + dirZ * 40,
-    });
-    spawnBolt(origin, yaw, pitch, myId || 'local');
+    const { origin, dir } = getAimRay();
+    spawnTracer(origin, dir, 48);
+    spawnBolt(origin, dir.clone(), myId || 'local');
     flashMuzzle();
     playZap();
   }
