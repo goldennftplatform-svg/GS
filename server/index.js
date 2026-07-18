@@ -13,16 +13,36 @@ const FIRE_COOLDOWN_MS = 180;
 const RESPAWN_MS = 2500;
 const HIT_RADIUS = 0.95;
 const PLAYER_HEIGHT = 1.65;
-const MAP_HALF = 60;
 const GRAVITY = 28;
 const JUMP_VEL = 9.5;
 
-const SPAWNS = [
-  { x: -52, y: PLAYER_HEIGHT, z: -52, yaw: Math.PI / 4 },
-  { x: 52, y: PLAYER_HEIGHT, z: -52, yaw: (3 * Math.PI) / 4 },
-  { x: -52, y: PLAYER_HEIGHT, z: 52, yaw: -Math.PI / 4 },
-  { x: 52, y: PLAYER_HEIGHT, z: 52, yaw: (-3 * Math.PI) / 4 },
-];
+const MAP_DEFS = {
+  stadium: { half: 58, spawnR: 48 },
+  lunch: { half: 48, spawnR: 40 },
+  starbucks: { half: 43, spawnR: 35 },
+  megacorp: { half: 53, spawnR: 44 },
+  facility: { half: 62, spawnR: 52 },
+};
+
+let mapId = 'facility';
+let MAP_HALF = MAP_DEFS.facility.half;
+let SPAWNS = cornerSpawns(MAP_DEFS.facility.spawnR);
+
+function cornerSpawns(r) {
+  return [
+    { x: -r, y: PLAYER_HEIGHT, z: -r, yaw: Math.PI / 4 },
+    { x: r, y: PLAYER_HEIGHT, z: -r, yaw: (3 * Math.PI) / 4 },
+    { x: -r, y: PLAYER_HEIGHT, z: r, yaw: -Math.PI / 4 },
+    { x: r, y: PLAYER_HEIGHT, z: r, yaw: (-3 * Math.PI) / 4 },
+  ];
+}
+
+function applyMap(id) {
+  const def = MAP_DEFS[id] || MAP_DEFS.facility;
+  mapId = MAP_DEFS[id] ? id : 'facility';
+  MAP_HALF = def.half;
+  SPAWNS = cornerSpawns(def.spawnR);
+}
 
 const AGENTS = {
   skullpepe: { name: 'SKULL PEPE', color: '#6BAF6E', speedMul: 1.08, hpMul: 1.0 },
@@ -45,6 +65,7 @@ let match = {
   started: false,
   endsAt: 0,
   killFeed: [],
+  mapId: 'facility',
 };
 
 function uid() {
@@ -177,35 +198,9 @@ function resetMatch() {
 }
 
 function clampArena(p) {
-  p.x = Math.max(-MAP_HALF, Math.min(MAP_HALF, p.x));
-  p.z = Math.max(-MAP_HALF, Math.min(MAP_HALF, p.z));
-  const blocks = [
-    { x: 0, z: 0, r: 3.2 },
-    { x: -8, z: -8, r: 1.5 },
-    { x: 8, z: -8, r: 1.5 },
-    { x: -8, z: 8, r: 1.5 },
-    { x: 8, z: 8, r: 1.5 },
-    { x: -12, z: 0, r: 1.5 },
-    { x: 12, z: 0, r: 1.5 },
-    { x: 0, z: -12, r: 1.5 },
-    { x: 0, z: 12, r: 1.5 },
-    { x: -20, z: -18, r: 1.4 },
-    { x: 20, z: -18, r: 1.4 },
-    { x: -20, z: 18, r: 1.4 },
-    { x: 20, z: 18, r: 1.4 },
-    { x: 0, z: -18, r: 1.7 },
-    { x: 0, z: 18, r: 1.7 },
-  ];
-  for (const b of blocks) {
-    const dx = p.x - b.x;
-    const dz = p.z - b.z;
-    const d = Math.hypot(dx, dz);
-    if (d < b.r + 0.45) {
-      const push = (b.r + 0.45 - d) / (d || 1);
-      p.x += dx * push;
-      p.z += dz * push;
-    }
-  }
+  const pad = 1.5;
+  p.x = Math.max(-MAP_HALF + pad, Math.min(MAP_HALF - pad, p.x));
+  p.z = Math.max(-MAP_HALF + pad, Math.min(MAP_HALF - pad, p.z));
 }
 
 function applyJumpPhysics(p, wantJump, dt) {
@@ -316,12 +311,22 @@ wss.on('connection', (ws) => {
 
     if (msg.type === 'join') {
       if (playerId) return;
+      if (players.size === 0) {
+        applyMap(msg.mapId || 'facility');
+        match.mapId = mapId;
+      }
       playerId = uid();
       ws.playerId = playerId;
       const p = spawnPlayer(playerId, msg.name, msg.agentId);
       players.set(playerId, p);
       maybeStartMatch();
-      send(ws, { type: 'welcome', id: playerId, player: publicPlayer(p), maxPlayers: MAX_PLAYERS });
+      send(ws, {
+        type: 'welcome',
+        id: playerId,
+        player: publicPlayer(p),
+        maxPlayers: MAX_PLAYERS,
+        mapId: match.mapId || mapId,
+      });
       broadcast({ type: 'join', player: publicPlayer(p) }, playerId);
       send(ws, snapshot(playerId));
       return;
@@ -380,6 +385,8 @@ wss.on('connection', (ws) => {
       match.started = false;
       match.endsAt = 0;
       match.killFeed = [];
+      match.mapId = 'facility';
+      applyMap('facility');
     }
   });
 });
