@@ -20,12 +20,15 @@ const HALF = MAP / 2;
 const EYE = 1.65;
 const GRAVITY = 28;
 const JUMP_VEL = 9.5;
-const FIRE_MS = 140;
+const FIRE_MS = 160;
 const DMG = 34;
-const BOLT_SPEED = 85;
-const BOLT_LIFE = 0.9;
+const BOLT_SPEED = 70;
+const BOLT_LIFE = 0.7;
+const MAX_BOLTS = 10;
 /** @type {{ mesh: THREE.Mesh, vx:number, vy:number, vz:number, life:number, fromId:string }[]} */
 const bolts = [];
+/** @type {THREE.Object3D[]} */
+const animatedProps = [];
 let audioCtx = null;
 let lastLocalShot = 0;
 
@@ -631,8 +634,12 @@ function placeProp(src, x, z, opts = {}) {
       o.receiveShadow = true;
     }
   });
-  if (opts.spin) prop.userData.spin = true;
-  if (opts.hoverBob) prop.userData.hoverBob = true;
+  if (opts.spin || opts.hoverBob) {
+    prop.userData.spin = !!opts.spin;
+    prop.userData.hoverBob = !!opts.hoverBob;
+    prop.userData.baseY = prop.position.y;
+    animatedProps.push(prop);
+  }
   scene.add(prop);
   if (opts.collide) {
     const r = opts.collide;
@@ -755,11 +762,12 @@ function decorateFacilityProps() {
     [36, -36], [-36, 36], [36, 36], [-36, -36],
   ];
   for (const [x, z] of badges) {
-    const b = placeProp(models.badge, x, z, { y: 3.2, ry: Math.atan2(-x, -z) });
-    if (b) {
-      b.position.y = 3.2;
-      b.userData.spin = true;
-    }
+    placeProp(models.badge, x, z, {
+      y: 3.2,
+      ry: Math.atan2(-x, -z),
+      spin: true,
+      hoverBob: true,
+    });
   }
 
   // Hearts float near spawns
@@ -871,89 +879,58 @@ function flashMuzzle() {
 
 function spawnImpact(x, y, z, hitSomeone) {
   const spark = new THREE.Mesh(
-    new THREE.SphereGeometry(hitSomeone ? 0.45 : 0.28, 10, 10),
-    new THREE.MeshBasicMaterial({
-      color: hitSomeone ? PALETTE.red : PALETTE.cream,
-      transparent: true,
-      opacity: 1,
-    })
+    new THREE.SphereGeometry(hitSomeone ? 0.4 : 0.25, 8, 8),
+    new THREE.MeshBasicMaterial({ color: hitSomeone ? PALETTE.red : PALETTE.cream })
   );
   spark.position.set(x, y, z);
   scene.add(spark);
-  const ring = new THREE.Mesh(
-    new THREE.RingGeometry(0.2, 0.55, 16),
-    new THREE.MeshBasicMaterial({
-      color: PALETTE.green,
-      side: THREE.DoubleSide,
-      transparent: true,
-      opacity: 0.9,
-    })
-  );
-  ring.position.copy(spark.position);
-  ring.lookAt(camera.position);
-  scene.add(ring);
-  const t0 = performance.now();
-  (function fade() {
-    const u = (performance.now() - t0) / 220;
-    if (u >= 1) {
-      scene.remove(spark);
-      scene.remove(ring);
-      return;
-    }
-    spark.scale.setScalar(1 + u * 2);
-    spark.material.opacity = 1 - u;
-    ring.scale.setScalar(1 + u * 3);
-    ring.material.opacity = 1 - u;
-    requestAnimationFrame(fade);
-  })();
+  setTimeout(() => {
+    scene.remove(spark);
+    spark.geometry.dispose();
+    spark.material.dispose();
+  }, 120);
 }
 
 function spawnTracer(origin, impact) {
-  // Fat glowing beam (visible, not a hairline)
   const start = new THREE.Vector3(origin.x, origin.y, origin.z);
   const end = new THREE.Vector3(impact.x, impact.y, impact.z);
   const dir = end.clone().sub(start);
-  const len = Math.max(0.2, dir.length());
-  dir.normalize();
+  const len = dir.length();
+  if (len < 0.05) return;
+  dir.multiplyScalar(1 / len);
   const beam = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.06, 0.02, len, 8),
+    new THREE.CylinderGeometry(0.05, 0.02, len, 6),
     new THREE.MeshBasicMaterial({ color: 0x9dff9a })
   );
-  beam.position.copy(start).addScaledVector(dir, len / 2);
+  beam.position.copy(start).addScaledVector(dir, len * 0.5);
+  const up = new THREE.Vector3(0, 1, 0);
+  if (Math.abs(dir.dot(up)) > 0.99) up.set(1, 0, 0);
   beam.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
   scene.add(beam);
   setTimeout(() => {
     scene.remove(beam);
     beam.geometry.dispose();
     beam.material.dispose();
-  }, 80);
-
-  const core = new THREE.Mesh(
-    new THREE.SphereGeometry(0.16, 10, 10),
-    new THREE.MeshBasicMaterial({ color: 0xfff2b3 })
-  );
-  core.position.copy(start).addScaledVector(dir, 0.4);
-  scene.add(core);
-  setTimeout(() => {
-    scene.remove(core);
-    core.geometry.dispose();
-    core.material.dispose();
-  }, 60);
+  }, 70);
 }
 
 function spawnBolt(origin, yaw, pitch, fromId) {
+  // Hard cap — leftover bolts + lights were melting the frame
+  while (bolts.length >= MAX_BOLTS) {
+    const old = bolts.shift();
+    scene.remove(old.mesh);
+    old.mesh.geometry.dispose();
+    old.mesh.material.dispose();
+  }
   const dirX = Math.sin(yaw) * Math.cos(pitch);
   const dirY = Math.sin(pitch);
   const dirZ = -Math.cos(yaw) * Math.cos(pitch);
   const mesh = new THREE.Mesh(
-    new THREE.SphereGeometry(0.22, 12, 12),
+    new THREE.SphereGeometry(0.2, 8, 8),
     new THREE.MeshBasicMaterial({ color: 0x6baf6e })
   );
-  // Start in front of the eye so you always see it leave the gun
-  mesh.position.set(origin.x + dirX * 0.9, origin.y + dirY * 0.9, origin.z + dirZ * 0.9);
+  mesh.position.set(origin.x + dirX * 1.1, origin.y + dirY * 1.1, origin.z + dirZ * 1.1);
   scene.add(mesh);
-  const glow = new THREE.PointLight(0x6baf6e, 2.5, 6);
-  mesh.add(glow);
   bolts.push({
     mesh,
     vx: dirX * BOLT_SPEED,
@@ -1294,7 +1271,7 @@ function updateBots(dt, now) {
     if (dist > 5) moveEntity(bot, -1, Math.sin(now * 0.001 + bot.spawnIndex) * 0.5, dist > 16, false, dt);
     else if (dist < 2.8) moveEntity(bot, 1, 0.6, false, Math.random() < 0.01, dt);
     else moveEntity(bot, 0, Math.sin(now * 0.002) * 0.3, false, false, dt);
-    if (dist < 36 && Math.random() < 0.04) applyShot(bot, now);
+    if (dist < 28 && Math.random() < 0.012) applyShot(bot, now);
   }
 }
 
@@ -1317,11 +1294,9 @@ function offlineTick(dt) {
     keys.jump = false;
     camera.position.set(me.x, me.y, me.z);
 
-    // Hold-to-auto-fire (click already fires instantly in firePrimary)
-    if (keys.shootHeld) applyShot(me, now);
-    shootPulse = false;
+    // Hold-to-auto-fire via cooldown inside firePrimary/applyShot
+    if (keys.shootHeld) firePrimary();
   } else {
-    shootPulse = false;
     keys.shootHeld = false;
   }
 
@@ -1596,10 +1571,9 @@ addEventListener('keydown', (e) => {
     e.preventDefault();
     keys.jump = true;
   }
-  // GoldenEye-style alt fire keys
   if (e.code === 'KeyF' || e.code === 'ControlLeft' || e.code === 'ControlRight') {
     keys.shootHeld = true;
-    shootPulse = true;
+    firePrimary();
   }
   if (e.code === 'KeyR' && inMatch()) tryPointerLock();
 });
@@ -1625,21 +1599,16 @@ function tryPointerLock() {
   if (req && typeof req.catch === 'function') req.catch(() => {});
 }
 
-function firePrimary(fromHold = false) {
-  if (!inMatch() || !localAlive) return;
-  keys.shootHeld = true;
-  shootPulse = true;
-
-  // FIRE NOW — do not wait for the next frame (this was the broken feel)
+function firePrimary() {
+  if (!inMatch() || !localAlive) return false;
   const now = Date.now();
-  if (now - lastLocalShot < FIRE_MS) return;
+  if (now - lastLocalShot < FIRE_MS) return false;
   lastLocalShot = now;
 
   if (offlineMode && offlineMatch) {
     const me = offlineMatch.roster.find((p) => p.id === myId);
     if (me?.alive) applyShot(me, now);
   } else {
-    // networked: still show local FX immediately
     const origin = {
       x: camera.position.x,
       y: camera.position.y,
@@ -1657,36 +1626,27 @@ function firePrimary(fromHold = false) {
     flashMuzzle();
     playZap();
   }
+  return true;
 }
 
 function onPrimaryDown(e) {
   if (!inMatch()) return;
-  // button 0 = LMB. Also accept pens / touch as primary.
-  const primary =
-    e.button === 0 ||
-    e.button === undefined ||
-    e.buttons === 1 ||
-    e.pointerType === 'touch';
-  if (!primary) return;
+  if (e.button !== 0 && e.pointerType !== 'touch') return;
   if (e.cancelable) e.preventDefault();
   ensureAudio();
   tryPointerLock();
   canvas.focus();
-  firePrimary(false);
+  keys.shootHeld = true;
+  firePrimary();
 }
 
 function onPrimaryUp(e) {
-  if (e.button === 0 || e.button === undefined) keys.shootHeld = false;
+  if (e.button === 0 || e.pointerType === 'touch') keys.shootHeld = false;
 }
 
-window.addEventListener('pointerdown', onPrimaryDown, true);
-window.addEventListener('mousedown', onPrimaryDown, true);
-window.addEventListener('pointerup', onPrimaryUp, true);
-window.addEventListener('mouseup', onPrimaryUp, true);
-canvas.addEventListener('click', (e) => {
-  if (!inMatch()) return;
-  onPrimaryDown(e);
-});
+// One listener only — stacking pointerdown+mousedown+click was multi-firing
+window.addEventListener('pointerdown', onPrimaryDown);
+window.addEventListener('pointerup', onPrimaryUp);
 
 document.addEventListener('contextmenu', (e) => {
   if (inMatch()) e.preventDefault();
@@ -1697,15 +1657,16 @@ document.addEventListener('pointerlockchange', () => {
 });
 
 addEventListener('mousemove', (e) => {
-  pointerLocked = document.pointerLockElement === canvas;
-  if (!pointerLocked) return;
+  if (document.pointerLockElement !== canvas) {
+    pointerLocked = false;
+    return;
+  }
+  pointerLocked = true;
   yaw -= e.movementX * 0.0024;
   pitch -= e.movementY * 0.0024;
   pitch = Math.max(-1.4, Math.min(1.4, pitch));
-  if (e.buttons & 1) {
-    keys.shootHeld = true;
-    firePrimary(true);
-  }
+  // DO NOT fire here — that was the glitch storm
+  if (e.buttons & 1) keys.shootHeld = true;
 });
 
 addEventListener('resize', () => {
@@ -1726,19 +1687,24 @@ function tick() {
   const dt = Math.min(0.05, clock.getDelta());
   const t = clock.elapsedTime;
 
-  scene.traverse((o) => {
-    if (o.userData.spin || o.userData.hoverBob) {
-      if (o.userData.baseY == null) o.userData.baseY = o.position.y;
-      if (o.userData.spin) o.rotation.y = t * 1.8;
-      o.position.y = o.userData.baseY + Math.sin(t * 3 + o.position.x) * 0.14;
+  for (const o of animatedProps) {
+    if (o.userData.baseY == null) o.userData.baseY = o.position.y;
+    if (o.userData.spin) o.rotation.y = t * 1.6;
+    if (o.userData.hoverBob || o.userData.spin) {
+      o.position.y = o.userData.baseY + Math.sin(t * 2.5 + o.position.x) * 0.1;
     }
-  });
+  }
 
   camera.rotation.order = 'YXZ';
   camera.rotation.y = yaw;
   camera.rotation.x = pitch;
-  gunGroup.position.x = Math.sin(t * 2.2) * 0.01;
-  gunGroup.position.y = Math.cos(t * 3.1) * 0.008;
+  // Don't fight muzzle recoil every frame
+  if (muzzleFlash.intensity < 0.1) {
+    gunGroup.position.x = Math.sin(t * 2.2) * 0.008;
+    gunGroup.position.y = Math.cos(t * 3.1) * 0.006;
+    gunGroup.position.z = 0;
+    gunGroup.rotation.x = 0;
+  }
 
   if (offlineMode) offlineTick(dt);
   else sendInput();
