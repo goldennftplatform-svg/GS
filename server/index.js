@@ -11,8 +11,6 @@ const PLAYER_HP = 100;
 const RESPAWN_MS = 2500;
 const HIT_RADIUS = 0.95;
 const PLAYER_HEIGHT = 1.65;
-const GRAVITY = 28;
-const JUMP_VEL = 9.5;
 
 const MAP_DEFS = {
   stadium: { half: 58, spawnR: 48 },
@@ -323,20 +321,6 @@ function clampArena(p) {
   p.z = Math.max(-MAP_HALF + pad, Math.min(MAP_HALF - pad, p.z));
 }
 
-function applyJumpPhysics(p, wantJump, dt) {
-  if (wantJump && p.grounded) {
-    p.vy = JUMP_VEL;
-    p.grounded = false;
-  }
-  p.vy -= GRAVITY * dt;
-  p.y += p.vy * dt;
-  if (p.y <= PLAYER_HEIGHT) {
-    p.y = PLAYER_HEIGHT;
-    p.vy = 0;
-    p.grounded = true;
-  }
-}
-
 function startReload(p, now) {
   const W = WEAPONS[p.weapon] || WEAPONS.pp7;
   if (W.mag < 0 || p.reloadUntil || p.ammo === W.mag) return false;
@@ -523,7 +507,7 @@ wss.on('connection', (ws) => {
       p.pitch = pitch;
       const dt = TICK_MS / 1000;
 
-      const speed = (msg.sprint ? 10.5 : 7.2) * (p.speedMul || 1);
+      const speed = (msg.sprint ? 11.5 : 8.2) * (p.speedMul || 1);
       let mx = 0;
       let mz = 0;
       if (msg.f) mz -= 1;
@@ -532,17 +516,21 @@ wss.on('connection', (ws) => {
       if (msg.r) mx += 1;
       if (mx || mz) {
         const len = Math.hypot(mx, mz);
-        mx /= len;
+        mx = (mx / len) * 1.12; // strafe-running advantage
         mz /= len;
         const cos = Math.cos(yaw);
         const sin = Math.sin(yaw);
-        const dx = mx * cos + mz * sin;
-        const dz = -mx * sin + mz * cos;
-        p.x += dx * speed * dt;
-        p.z += dz * speed * dt;
-        clampArena(p);
+        const dx = (mx * cos + mz * sin) * speed * dt;
+        const dz = (-mx * sin + mz * cos) * speed * dt;
+        // Substep so thin geometry can never be crossed between checks
+        const dist = Math.hypot(dx, dz);
+        const steps = Math.max(1, Math.ceil(dist / 0.25));
+        for (let i = 0; i < steps; i++) {
+          p.x += dx / steps;
+          p.z += dz / steps;
+          clampArena(p);
+        }
       }
-      applyJumpPhysics(p, !!msg.jump, dt);
       if (msg.shoot) tryShoot(p, !!msg.click);
       else p.shooting = false;
       return;

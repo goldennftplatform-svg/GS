@@ -20,8 +20,6 @@ const PALETTE = {
 let MAP = 128;
 let HALF = MAP / 2;
 const EYE = 1.65;
-const GRAVITY = 28;
-const JUMP_VEL = 9.5;
 const BOLT_SPEED = 70;
 const BOLT_LIFE = 0.7;
 const MAX_BOLTS = 10;
@@ -1388,32 +1386,66 @@ function applyShot(shooter, now) {
   return true;
 }
 
+let bobPhase = 0;
+let bobPrevX = null;
+let bobPrevZ = null;
+let bobOffset = 0;
+
+// GoldenEye-style head bob driven by actual ground covered
+function updateViewBob(x, z) {
+  if (bobPrevX === null) {
+    bobPrevX = x;
+    bobPrevZ = z;
+    bobOffset = 0;
+    return 0;
+  }
+  const d = Math.hypot(x - bobPrevX, z - bobPrevZ);
+  bobPrevX = x;
+  bobPrevZ = z;
+  let scale = 0;
+  if (d > 0.0004 && d < 1.2) {
+    bobPhase += d * 1.7;
+    scale = Math.min(1, d * 60);
+  }
+  bobOffset = Math.sin(bobPhase) * 0.045 * scale;
+  return bobOffset;
+}
+
+function pointBlocked(x, z, r = 0.42) {
+  for (const w of WALLS) {
+    const nx = Math.max(w.minX, Math.min(x, w.maxX));
+    const nz = Math.max(w.minZ, Math.min(z, w.maxZ));
+    const dx = x - nx;
+    const dz = z - nz;
+    if (dx * dx + dz * dz < r * r) return true;
+  }
+  return false;
+}
+
 function moveEntity(p, forward, strafe, sprint, wantJump, dt) {
   const mul = p.speedMul || 1;
-  const speed = (sprint ? 10.5 : 7.2) * mul;
-  let mx = strafe;
+  // GE agents: fast, grounded, strafe-running advantage — no jumping
+  const speed = (sprint ? 11.5 : 8.2) * mul;
+  let mx = strafe * 1.12;
   let mz = forward;
-  if (mx || mz) {
-    const len = Math.hypot(mx, mz) || 1;
-    mx /= len;
-    mz /= len;
-    const cos = Math.cos(p.yaw);
-    const sin = Math.sin(p.yaw);
-    p.x += (mx * cos + mz * sin) * speed * dt;
-    p.z += (-mx * sin + mz * cos) * speed * dt;
-    resolveCollision(p);
-  }
-
-  if (wantJump && p.grounded) {
-    p.vy = JUMP_VEL;
-    p.grounded = false;
-  }
-  p.vy -= GRAVITY * dt;
-  p.y += p.vy * dt;
-  if (p.y <= EYE) {
-    p.y = EYE;
-    p.vy = 0;
-    p.grounded = true;
+  const len = Math.hypot(mx, mz);
+  if (!len) return;
+  mx /= len;
+  mz /= len;
+  const cos = Math.cos(p.yaw);
+  const sin = Math.sin(p.yaw);
+  const dx = (mx * cos + mz * sin) * speed * dt;
+  const dz = (-mx * sin + mz * cos) * speed * dt;
+  // Swept axis-separated movement: slide along walls, can never cross them
+  const dist = Math.hypot(dx, dz);
+  const steps = Math.max(1, Math.ceil(dist / 0.2));
+  for (let i = 0; i < steps; i++) {
+    const tx = p.x + dx / steps;
+    if (!pointBlocked(tx, p.z)) p.x = tx;
+    else p.x = Math.max(-HALF + 1.5, Math.min(HALF - 1.5, p.x));
+    const tz = p.z + dz / steps;
+    if (!pointBlocked(p.x, tz)) p.z = tz;
+    else p.z = Math.max(-HALF + 1.5, Math.min(HALF - 1.5, p.z));
   }
 }
 
@@ -1466,7 +1498,7 @@ function offlineTick(dt) {
     if (keys.r) strafe += 1;
     moveEntity(me, forward, strafe, keys.sprint, keys.jump, dt);
     keys.jump = false;
-    camera.position.set(me.x, me.y, me.z);
+    camera.position.set(me.x, me.y + updateViewBob(me.x, me.z), me.z);
 
     // Hold-to-auto-fire via cooldown inside firePrimary/applyShot
     if (keys.shootHeld) firePrimary();
@@ -1633,7 +1665,7 @@ function connect(name) {
           netAmmo = me.ammo != null ? me.ammo : -1;
         }
       }
-      if (me?.alive) camera.position.set(me.x, me.y, me.z);
+      if (me?.alive) camera.position.set(me.x, me.y + updateViewBob(me.x, me.z), me.z);
       updateHud(msg);
       return;
     }
@@ -1985,7 +2017,9 @@ function tick() {
     gunGroup.position.x =
       Math.sin(t * 2.2) * 0.008 * (1 - adsBlend) - 0.165 * adsBlend;
     gunGroup.position.y =
-      Math.cos(t * 3.1) * 0.006 * (1 - adsBlend) + 0.03 * adsBlend;
+      Math.cos(t * 3.1) * 0.006 * (1 - adsBlend) +
+      0.03 * adsBlend +
+      bobOffset * 0.4;
     gunGroup.position.z = -0.07 * adsBlend;
     gunGroup.rotation.x = 0;
   }
