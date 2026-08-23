@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { AGENTS, getAgent, statBar } from './roster.js';
-import { MAPS, getMap, buildMapById, bindThree } from './maps.js';
+import { MAPS, getMap, buildMapById, bindThree, PAD_SPOTS, GOLD_SPOTS } from './maps.js';
+import { WEAPONS, GOLD_SHOTS, GUN_RANK, getWeapon } from './weapons.js';
 
 const PALETTE = {
   cream: 0xfff2b3,
@@ -21,17 +22,41 @@ let HALF = MAP / 2;
 const EYE = 1.65;
 const GRAVITY = 28;
 const JUMP_VEL = 9.5;
-const FIRE_MS = 160;
-const DMG = 34;
 const BOLT_SPEED = 70;
 const BOLT_LIFE = 0.7;
 const MAX_BOLTS = 10;
+const PAD_RADIUS = 1.5;
+const PAD_RESPAWN_MS = 22000;
+const GOLD_LIVE_MS = 20000;
+const GOLD_RESPAWN_MS = 30000;
+const ARMOR_ABSORB = 0.55;
+const STREAK_TEXT = { 2: 'DOUBLE KILL', 3: 'TRIPLE KILL', 4: 'KILLING SPREE' };
 /** @type {{ mesh: THREE.Mesh, vx:number, vy:number, vz:number, life:number, fromId:string }[]} */
 const bolts = [];
 /** @type {THREE.Object3D[]} */
 const animatedProps = [];
 let audioCtx = null;
 let lastLocalShot = 0;
+let triggerFresh = false;
+let adsBlend = 0;
+let matchStartedAt = 0;
+
+/** Viewmodel mounting per weapon — guns authored muzzle-forward (-Z after glTF). */
+const VIEWMODEL = {
+  pp7: { model: 'pp7', pos: [0.22, -0.24, -0.4], scale: 1.15 },
+  klobber: { model: 'klobber', pos: [0.24, -0.26, -0.44], scale: 1.05 },
+  dd: { model: 'ddskull', pos: [0.22, -0.24, -0.42], scale: 1.2 },
+  kf7: { model: 'kf7', pos: [0.2, -0.28, -0.48], scale: 1.25 },
+  gold: { model: 'golden', pos: [0.22, -0.22, -0.4], scale: 1.25 },
+};
+
+let netWeapon = 'pp7';
+let netAmmo = -1;
+let netPickups = [];
+
+/** Floating floor pads (offline sim). @type {{id:string,x:number,z:number,w:string,kind:string,active:boolean,respawnAt:number,mesh:?THREE.Object3D}[]} */
+let pads = [];
+let goldPad = null;
 
 const canvas = document.getElementById('game');
 const boot = document.getElementById('boot');
@@ -47,6 +72,7 @@ const toSelectBtn = document.getElementById('toSelectBtn');
 const backBoot = document.getElementById('backBoot');
 const agentGrid = document.getElementById('agentGrid');
 const agentTag = document.getElementById('agentTag');
+const crosshairEl = document.getElementById('crosshair');
 
 const els = {
   score: document.getElementById('hudScore'),
@@ -54,6 +80,8 @@ const els = {
   count: document.getElementById('hudCount'),
   hearts: document.getElementById('hearts'),
   energy: document.getElementById('energyBar'),
+  armor: document.getElementById('armorBar'),
+  weapon: document.getElementById('weaponName'),
   tokens: document.getElementById('hudTokens'),
   lives: document.getElementById('hudLives'),
   kills: document.getElementById('hudKills'),
@@ -65,6 +93,7 @@ const els = {
   centerMsg: document.getElementById('centerMsg'),
   standings: document.getElementById('standings'),
   overlayTitle: document.getElementById('overlayTitle'),
+  overlayHint: document.querySelector('#overlay .hint'),
   radar: document.getElementById('radar'),
   mapTag: document.getElementById('mapTag'),
 };
@@ -80,6 +109,7 @@ const keys = {
   sprint: false,
   jump: false,
   shootHeld: false,
+  ads: false,
 };
 let shootPulse = false;
 let yaw = 0;
@@ -179,16 +209,26 @@ function fallbackGun() {
   gunGroup.add(body, barrel);
 }
 
-function mountRaygun() {
+function currentWeaponId() {
+  if (offlineMode && offlineMatch) {
+    const me = offlineMatch.roster.find((p) => p.id === myId);
+    return me ? me.weapon : 'pp7';
+  }
+  return netWeapon;
+}
+
+function mountViewmodel(weaponId = 'pp7') {
   while (gunGroup.children.length) gunGroup.remove(gunGroup.children[0]);
-  if (!models.raygun) {
+  const cfg = VIEWMODEL[weaponId] || VIEWMODEL.pp7;
+  const src = models[cfg.model] || models.raygun;
+  if (!src) {
     fallbackGun();
   } else {
-    const gun = models.raygun.clone(true);
-    gun.scale.setScalar(0.45);
-    // Point down camera -Z (forward). Don't yaw the viewmodel 90° off-axis.
-    gun.rotation.set(0, Math.PI, 0);
-    gun.position.set(0.22, -0.2, -0.45);
+    const gun = src.clone(true);
+    gun.scale.setScalar(cfg.scale);
+    // Authored muzzle-forward (-Z) — no yaw correction needed
+    gun.rotation.set(0, 0, 0);
+    gun.position.set(cfg.pos[0], cfg.pos[1], cfg.pos[2]);
     gun.traverse((o) => {
       if (o.isMesh) {
         o.castShadow = true;
@@ -197,8 +237,14 @@ function mountRaygun() {
     });
     gunGroup.add(gun);
   }
-  muzzleFlash.position.set(0.28, -0.22, -1.05);
+  muzzleFlash.position.set(0.06, -0.2, -0.85);
+  muzzleFlash.color = new THREE.Color(weaponId === 'gold' ? 0xffd700 : PALETTE.green);
   gunGroup.add(muzzleFlash);
+}
+
+// Legacy alias — raygun viewmodel is just the pp7 slot now
+function mountRaygun() {
+  mountViewmodel(currentWeaponId());
 }
 
 const muzzleFlash = new THREE.PointLight(PALETTE.green, 0, 5);
@@ -214,6 +260,12 @@ async function loadGameAssets() {
   const urls = {
     agent: '/assets/models/skullpepe.glb',
     raygun: '/assets/models/raygun.glb',
+    pp7: '/assets/models/pp7.glb',
+    klobber: '/assets/models/klobber.glb',
+    ddskull: '/assets/models/ddskull.glb',
+    kf7: '/assets/models/kf7.glb',
+    golden: '/assets/models/golden.glb',
+    armorvest: '/assets/models/armorvest.glb',
     crate: '/assets/models/crate.glb',
     server: '/assets/models/server.glb',
     hazard: '/assets/models/hazard_sign.glb',
@@ -257,8 +309,9 @@ async function loadGameAssets() {
         o.receiveShadow = true;
       }
     });
-    mountRaygun();
+    mountViewmodel(currentWeaponId());
     decorateMapProps();
+    refreshPadMeshes();
     for (const [, mesh] of remoteMeshes) scene.remove(mesh);
     remoteMeshes.clear();
     if (offlineMatch) syncRemotes(offlineMatch.roster);
@@ -314,6 +367,7 @@ function loadSelectedMap(mapId = selectedMapId) {
     },
   });
   if (els.mapTag) els.mapTag.textContent = map.name;
+  buildPads();
   if (models.crate || models.token) decorateMapProps();
   return map;
 }
@@ -344,6 +398,25 @@ function drawRadar() {
   g.strokeStyle = 'rgba(255, 242, 179, 0.35)';
   g.lineWidth = 1;
   g.strokeRect(cx - HALF * scale, cy - HALF * scale, MAP * scale, MAP * scale);
+
+  // Floor pads: cream = weapon, blue = armor, blinking gold = Golden Skullgun
+  if (offlineMode) {
+    for (const pad of pads) {
+      if (!pad.active) continue;
+      g.fillStyle = pad.kind === 'armor' ? '#7fa8ff' : '#fff2b3';
+      g.fillRect(cx + pad.x * scale - 3, cy + pad.z * scale - 3, 6, 6);
+    }
+    if (goldPad && goldPad.spawned && Math.floor(performance.now() / 280) % 2 === 0) {
+      g.fillStyle = '#ffd700';
+      g.fillRect(cx + goldPad.x * scale - 4, cy + goldPad.z * scale - 4, 8, 8);
+    }
+  } else {
+    for (const p of netPickups) {
+      if (!p.a) continue;
+      g.fillStyle = p.w === 'gold' ? (Math.floor(performance.now() / 280) % 2 ? '#ffd700' : 'transparent') : p.w === 'armor' ? '#7fa8ff' : '#fff2b3';
+      g.fillRect(cx + p.x * scale - 3, cy + p.z * scale - 3, 6, 6);
+    }
+  }
 
   const list =
     offlineMode && offlineMatch ? offlineMatch.roster : [...players.values()];
@@ -540,6 +613,250 @@ function decorateMapProps() {
   }
 }
 
+const MODEL_FOR_GUN = { pp7: 'pp7', klobber: 'klobber', dd: 'ddskull', kf7: 'kf7', gold: 'golden' };
+
+function buildPads() {
+  pads = (PAD_SPOTS[selectedMapId] || []).map((s, i) => ({
+    id: `${selectedMapId}-pad${i}`,
+    x: s.x,
+    z: s.z,
+    w: s.w,
+    kind: s.w === 'armor' ? 'armor' : 'gun',
+    active: true,
+    respawnAt: 0,
+    mesh: null,
+  }));
+  const g = GOLD_SPOTS[selectedMapId] || [0, 0];
+  goldPad = { x: g[0], z: g[1], spawned: false, active: false, respawnAt: 0, mesh: null };
+  refreshPadMeshes();
+}
+
+function refreshPadMeshes() {
+  const make = (kind, w) => {
+    let src = null;
+    let scale = 1;
+    if (kind === 'armor') {
+      src = models.armorvest;
+      scale = 1.9;
+    } else {
+      src = models[MODEL_FOR_GUN[w]] || models.raygun;
+      scale = 2.4;
+    }
+    if (!src) return null;
+    const m = src.clone(true);
+    m.scale.setScalar(scale);
+    m.traverse((o) => {
+      if (o.isMesh) o.castShadow = true;
+    });
+    return m;
+  };
+  for (const pad of pads) {
+    if (pad.mesh || !pad.active) continue;
+    const mesh = make(pad.kind, pad.w);
+    if (!mesh) continue;
+    mesh.position.set(pad.x, 0.9, pad.z);
+    mesh.userData.spin = true;
+    mesh.userData.hoverBob = true;
+    mesh.userData.baseY = 0.9;
+    world.add(mesh);
+    animatedProps.push(mesh);
+    pad.mesh = mesh;
+  }
+  if (goldPad && !goldPad.mesh) {
+    const mesh = make('gun', 'gold');
+    if (mesh) {
+      mesh.position.set(goldPad.x, 1.15, goldPad.z);
+      mesh.userData.spin = true;
+      mesh.userData.hoverBob = true;
+      mesh.userData.baseY = 1.15;
+      world.add(mesh);
+      animatedProps.push(mesh);
+      goldPad.mesh = mesh;
+      mesh.visible = false;
+    }
+  }
+}
+
+function resetPads(now = Date.now()) {
+  matchStartedAt = now;
+  for (const pad of pads) {
+    pad.active = true;
+    pad.respawnAt = 0;
+    if (pad.mesh) pad.mesh.visible = true;
+  }
+  if (goldPad) {
+    goldPad.spawned = false;
+    goldPad.active = false;
+    goldPad.respawnAt = 0;
+    if (goldPad.mesh) goldPad.mesh.visible = false;
+  }
+}
+
+function grantPickup(e, kind, w, now) {
+  if (kind === 'armor') {
+    if ((e.armor || 0) >= 95) return false;
+    e.armor = 100;
+  } else {
+    if (w !== 'gold' && (GUN_RANK[w] ?? 0) <= (GUN_RANK[e.weapon] ?? 0)) return false;
+    e.weapon = w;
+    e.ammo = w === 'gold' ? GOLD_SHOTS : getWeapon(w).mag;
+    e.reloadingUntil = 0;
+    if (w === 'gold') showCenter(`${e.name} HAS THE GOLDEN SKULLGUN`, 1500);
+  }
+  if (e.id === myId) {
+    if (kind !== 'armor') mountViewmodel(e.weapon);
+    playPickup();
+  }
+  return true;
+}
+
+/** Offline pad sim: respawn timers, golden gun schedule, proximity grabs (bots included). */
+function tickPads(now) {
+  if (!offlineMode || !offlineMatch) return;
+  for (const pad of pads) {
+    if (!pad.active && now >= pad.respawnAt) {
+      pad.active = true;
+      if (pad.mesh) pad.mesh.visible = true;
+    }
+  }
+  if (goldPad) {
+    if (!goldPad.spawned && now - matchStartedAt >= GOLD_LIVE_MS) {
+      goldPad.spawned = true;
+      goldPad.active = true;
+      if (goldPad.mesh) goldPad.mesh.visible = true;
+      showCenter('THE GOLDEN SKULLGUN IS LIVE', 2000);
+      playGoldSting();
+    } else if (goldPad.spawned && !goldPad.active && now >= goldPad.respawnAt) {
+      goldPad.active = true;
+      if (goldPad.mesh) goldPad.mesh.visible = true;
+      showCenter('THE GOLDEN SKULLGUN RETURNS', 1600);
+      playGoldSting();
+    }
+  }
+
+  for (const e of offlineMatch.roster) {
+    if (!e.alive) continue;
+    for (const pad of pads) {
+      if (!pad.active) continue;
+      if (Math.hypot(e.x - pad.x, e.z - pad.z) > PAD_RADIUS) continue;
+      if (grantPickup(e, pad.kind, pad.w, now)) {
+        pad.active = false;
+        pad.respawnAt = now + PAD_RESPAWN_MS;
+        if (pad.mesh) pad.mesh.visible = false;
+      }
+    }
+    if (goldPad && goldPad.active && Math.hypot(e.x - goldPad.x, e.z - goldPad.z) <= PAD_RADIUS) {
+      if (grantPickup(e, 'gun', 'gold', now)) {
+        goldPad.active = false;
+        goldPad.respawnAt = now + GOLD_RESPAWN_MS;
+        if (goldPad.mesh) goldPad.mesh.visible = false;
+      }
+    }
+  }
+}
+
+/** Ray vs wall footprints (with height bands) — returns travel distance to first blocker. */
+function castWalls(ox, oy, oz, dx, dy, dz, maxT) {
+  let best = maxT;
+  for (const w of WALLS) {
+    let tmin = 0;
+    let tmax = best;
+    if (Math.abs(dx) < 1e-8) {
+      if (ox < w.minX || ox > w.maxX) continue;
+    } else {
+      let t1 = (w.minX - ox) / dx;
+      let t2 = (w.maxX - ox) / dx;
+      if (t1 > t2) [t1, t2] = [t2, t1];
+      tmin = Math.max(tmin, t1);
+      tmax = Math.min(tmax, t2);
+      if (tmin > tmax) continue;
+    }
+    if (Math.abs(dz) < 1e-8) {
+      if (oz < w.minZ || oz > w.maxZ) continue;
+    } else {
+      let t1 = (w.minZ - oz) / dz;
+      let t2 = (w.maxZ - oz) / dz;
+      if (t1 > t2) [t1, t2] = [t2, t1];
+      tmin = Math.max(tmin, t1);
+      tmax = Math.min(tmax, t2);
+      if (tmin > tmax) continue;
+    }
+    const base = w.base != null ? w.base : 0;
+    const top = w.top != null ? w.top : 99;
+    const hy = oy + dy * Math.max(tmin, 0);
+    if (hy >= base - 0.05 && hy <= top + 0.05 && tmin < best) {
+      best = Math.max(tmin, 0);
+    }
+  }
+  return best;
+}
+
+function startReload(e, now) {
+  const W = getWeapon(e.weapon);
+  if (W.mag < 0 || e.reloadingUntil || e.ammo === W.mag) return false;
+  e.reloadingUntil = now + W.reloadMs;
+  if (e.id === myId) playClick();
+  return true;
+}
+
+function finishReloadIfDue(e, now) {
+  if (e.reloadingUntil && now >= e.reloadingUntil) {
+    e.reloadingUntil = 0;
+    e.ammo = getWeapon(e.weapon).mag;
+  }
+}
+
+function flashEntityById(id) {
+  const mesh = remoteMeshes.get(id);
+  if (!mesh) return;
+  mesh.traverse((o) => {
+    if (!o.isMesh || !o.material) return;
+    const mats = Array.isArray(o.material) ? o.material : [o.material];
+    for (const m of mats) {
+      if (m.userData._origEm == null) {
+        m.userData._origEm = m.emissive ? m.emissive.getHex() : 0;
+        m.userData._origIn = m.emissiveIntensity != null ? m.emissiveIntensity : 1;
+      }
+      if (m.emissive) {
+        m.emissive.setHex(0xff3020);
+        m.emissiveIntensity = 0.9;
+      }
+    }
+  });
+  clearTimeout(mesh.userData._flashT);
+  mesh.userData._flashT = setTimeout(() => {
+    mesh.traverse((o) => {
+      if (!o.isMesh || !o.material) return;
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      for (const m of mats) {
+        if (m.emissive && m.userData._origEm != null) {
+          m.emissive.setHex(m.userData._origEm);
+          m.emissiveIntensity = m.userData._origIn;
+        }
+      }
+    });
+  }, 90);
+}
+
+function spendGolden(e) {
+  e.weapon = 'pp7';
+  e.ammo = -1;
+  e.reloadingUntil = 0;
+  if (e.id === myId) {
+    mountViewmodel('pp7');
+    showCenter('GOLDEN SKULLGUN SPENT', 1300);
+  } else {
+    pushFeed(`${e.name} BURNED THE GOLD`);
+  }
+}
+
+function rankTitle(kills) {
+  if (kills >= 10) return '00 AGENT';
+  if (kills >= 6) return 'SECRET AGENT';
+  if (kills >= 3) return 'FIELD AGENT';
+  return 'TRAINEE';
+}
+
 function syncRemotes(list) {
   const seen = new Set();
   for (const p of list) {
@@ -589,21 +906,61 @@ function ensureAudio() {
   if (audioCtx?.state === 'suspended') audioCtx.resume();
 }
 
-function playZap() {
-  ensureAudio();
+function gunVoice(type, f0, f1, dur, gain = 0.12, delay = 0) {
   if (!audioCtx) return;
-  const t0 = audioCtx.currentTime;
+  const t0 = audioCtx.currentTime + delay;
   const o = audioCtx.createOscillator();
   const g = audioCtx.createGain();
-  o.type = 'square';
-  o.frequency.setValueAtTime(880, t0);
-  o.frequency.exponentialRampToValueAtTime(180, t0 + 0.09);
-  g.gain.setValueAtTime(0.12, t0);
-  g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.1);
+  o.type = type;
+  o.frequency.setValueAtTime(f0, t0);
+  o.frequency.exponentialRampToValueAtTime(Math.max(30, f1), t0 + dur);
+  g.gain.setValueAtTime(gain, t0);
+  g.gain.exponentialRampToValueAtTime(0.001, t0 + dur + 0.01);
   o.connect(g);
   g.connect(audioCtx.destination);
   o.start(t0);
-  o.stop(t0 + 0.11);
+  o.stop(t0 + dur + 0.02);
+}
+
+function playGun(kind) {
+  ensureAudio();
+  if (!audioCtx) return;
+  switch (kind) {
+    case 'magnum':
+      gunVoice('sawtooth', 300, 55, 0.2, 0.17);
+      gunVoice('square', 150, 40, 0.12, 0.08);
+      break;
+    case 'klobber':
+      gunVoice('square', 700, 260, 0.06, 0.07);
+      break;
+    case 'rifle':
+      gunVoice('sawtooth', 520, 140, 0.09, 0.11);
+      break;
+    case 'gold':
+      gunVoice('triangle', 1400, 380, 0.34, 0.16);
+      gunVoice('triangle', 2100, 600, 0.22, 0.07, 0.04);
+      break;
+    default:
+      gunVoice('square', 880, 180, 0.09, 0.12);
+  }
+}
+
+function playClick() {
+  ensureAudio();
+  gunVoice('square', 220, 120, 0.05, 0.06);
+}
+
+function playPickup() {
+  ensureAudio();
+  gunVoice('sine', 500, 950, 0.11, 0.1);
+  gunVoice('sine', 750, 1400, 0.1, 0.07, 0.07);
+}
+
+function playGoldSting() {
+  ensureAudio();
+  gunVoice('triangle', 660, 660, 0.14, 0.1);
+  gunVoice('triangle', 880, 880, 0.16, 0.1, 0.13);
+  gunVoice('triangle', 1320, 1320, 0.3, 0.12, 0.27);
 }
 
 function flashMuzzle() {
@@ -650,12 +1007,12 @@ function getAimRay() {
   return { origin: _aimOrigin, dir: _aimDir };
 }
 
-function spawnTracer(origin, dir, dist = 48) {
+function spawnTracer(origin, dir, dist = 48, color = 0x9dff9a) {
   const len = Math.max(0.5, dist);
   _aimEnd.copy(origin).addScaledVector(dir, len);
   const beam = new THREE.Mesh(
     new THREE.CylinderGeometry(0.04, 0.015, len, 6),
-    new THREE.MeshBasicMaterial({ color: 0x9dff9a })
+    new THREE.MeshBasicMaterial({ color })
   );
   beam.position.copy(origin).addScaledVector(dir, len * 0.5);
   beam.quaternion.setFromUnitVectors(_yAxis, dir);
@@ -667,7 +1024,7 @@ function spawnTracer(origin, dir, dist = 48) {
   }, 60);
 }
 
-function spawnBolt(origin, dir, fromId) {
+function spawnBolt(origin, dir, fromId, color = 0x6baf6e, size = 0.16) {
   while (bolts.length >= MAX_BOLTS) {
     const old = bolts.shift();
     scene.remove(old.mesh);
@@ -675,8 +1032,8 @@ function spawnBolt(origin, dir, fromId) {
     old.mesh.material.dispose();
   }
   const mesh = new THREE.Mesh(
-    new THREE.SphereGeometry(0.16, 8, 8),
-    new THREE.MeshBasicMaterial({ color: 0x6baf6e })
+    new THREE.SphereGeometry(size, 8, 8),
+    new THREE.MeshBasicMaterial({ color })
   );
   mesh.position.copy(origin).addScaledVector(dir, 1.2);
   scene.add(mesh);
@@ -735,6 +1092,19 @@ function updateHud(state) {
     els.hearts.appendChild(h);
   }
   els.energy.style.width = `${Math.max(15, Math.min(100, (me.hp / maxHp) * 100))}%`;
+  if (els.armor) els.armor.style.width = `${Math.max(0, Math.min(100, me.armor || 0))}%`;
+
+  const W = getWeapon(me.weapon);
+  if (els.weapon) {
+    const reloading =
+      (me.rt != null && me.rt > 60) || (offlineMode && me.reloadingUntil > Date.now());
+    els.weapon.textContent = reloading
+      ? 'RELOADING…'
+      : `${W.name} · ${W.mag < 0 ? '∞' : String(Math.max(0, me.ammo)).padStart(2, '0')}`;
+    els.weapon.classList.toggle('gold', me.weapon === 'gold');
+  }
+
+  if (state.pickups) netPickups = state.pickups;
 
   if (me.hp < lastHp) {
     els.damage.classList.add('on');
@@ -773,9 +1143,19 @@ function beginMission(title) {
 function endMatch(standings) {
   overlay.classList.remove('hidden');
   els.overlayTitle.textContent = 'MISSION COMPLETE';
-  els.standings.innerHTML = standings
-    .map((s, i) => `<li>#${i + 1} ${s.name} — ${s.kills}K / ${s.deaths}D · ${s.tokens} TOK</li>`)
-    .join('');
+  const mine = standings.find((s) => s.id === myId);
+  const rank = rankTitle(mine ? mine.kills : 0);
+  els.standings.innerHTML =
+    `<li class="rank">AGENT RATING — ${rank}</li>` +
+    standings
+      .map((s, i) => `<li>#${i + 1} ${s.name} — ${s.kills}K / ${s.deaths}D · ${s.tokens} TOK</li>`)
+      .join('');
+  if (els.overlayHint) {
+    els.overlayHint.textContent =
+      rank === '00 AGENT'
+        ? 'RATING EARNED. M IS PLEASED.'
+        : 'Next match arms in a few seconds…';
+  }
   document.exitPointerLock();
   setTimeout(() => {
     overlay.classList.add('hidden');
@@ -811,6 +1191,12 @@ function makeEntity(id, name, agentId, spawnIndex, bot = false) {
     respawnAt: 0,
     spawnIndex,
     bot,
+    weapon: 'pp7',
+    ammo: -1,
+    reloadingUntil: 0,
+    armor: 0,
+    lastKillAt: 0,
+    streak: 0,
   };
 }
 
@@ -840,8 +1226,16 @@ function resetOfflineMatch() {
       lives: 3,
       alive: true,
       respawnAt: 0,
+      weapon: 'pp7',
+      ammo: -1,
+      reloadingUntil: 0,
+      armor: 0,
+      lastKillAt: 0,
+      streak: 0,
     });
   }
+  resetPads();
+  if (offlineMode) mountViewmodel('pp7');
   const me = offlineMatch.roster.find((p) => p.id === myId);
   if (me) {
     yaw = me.yaw;
@@ -864,6 +1258,7 @@ function startOffline(name) {
     endsAt: Date.now() + 180000,
     ended: false,
   };
+  matchStartedAt = Date.now();
   yaw = me.yaw;
   pitch = 0;
   camera.position.set(me.x, me.y, me.z);
@@ -885,38 +1280,6 @@ function publishOfflineHud() {
   syncRemotes(offlineMatch.roster);
 }
 
-function rayHit(shooter) {
-  const dirX = Math.sin(shooter.yaw) * Math.cos(shooter.pitch);
-  const dirY = Math.sin(shooter.pitch);
-  const dirZ = -Math.cos(shooter.yaw) * Math.cos(shooter.pitch);
-  let best = null;
-  let bestT = 70;
-  for (const target of offlineMatch.roster) {
-    if (target.id === shooter.id || !target.alive) continue;
-    const fx = shooter.x - target.x;
-    const fy = shooter.y - (target.y - 0.15);
-    const fz = shooter.z - target.z;
-    const b = fx * dirX + fy * dirY + fz * dirZ;
-    const c = fx * fx + fy * fy + fz * fz - 0.95 * 0.95;
-    const disc = b * b - c;
-    if (disc < 0) continue;
-    const t = -b - Math.sqrt(disc);
-    if (t > 0.15 && t < bestT) {
-      bestT = t;
-      best = target;
-    }
-  }
-  return {
-    best,
-    impact: {
-      x: shooter.x + dirX * Math.min(bestT, 60),
-      y: shooter.y + dirY * Math.min(bestT, 60),
-      z: shooter.z + dirZ * Math.min(bestT, 60),
-    },
-    origin: { x: shooter.x, y: shooter.y, z: shooter.z },
-  };
-}
-
 function dirFromYawPitch(yaw0, pitch0, out = new THREE.Vector3()) {
   // Match Three.js camera forward for YXZ euler (look down -Z at 0,0)
   const cp = Math.cos(pitch0);
@@ -925,13 +1288,20 @@ function dirFromYawPitch(yaw0, pitch0, out = new THREE.Vector3()) {
 }
 
 function applyShot(shooter, now) {
-  if (!shooter.alive || now - shooter.lastShot < FIRE_MS) return false;
+  finishReloadIfDue(shooter, now);
+  const W = getWeapon(shooter.weapon);
+  if (!shooter.alive || shooter.reloadingUntil || now - shooter.lastShot < W.cd) return false;
+  if (W.mag >= 0 && shooter.ammo <= 0) {
+    startReload(shooter, now);
+    return false;
+  }
   shooter.lastShot = now;
+  if (W.mag >= 0) shooter.ammo -= 1;
 
   let origin;
   let dir;
   if (shooter.id === myId) {
-    // Local player: ALWAYS shoot where the camera looks (fixes "laser goes right")
+    // Local player: ALWAYS shoot where the camera looks
     const aim = getAimRay();
     origin = aim.origin;
     dir = aim.dir.clone();
@@ -941,52 +1311,79 @@ function applyShot(shooter, now) {
     origin = new THREE.Vector3(shooter.x, shooter.y, shooter.z);
     dir = dirFromYawPitch(shooter.yaw, shooter.pitch);
   }
+  if (W.spread > 0) {
+    dir.x += (Math.random() - 0.5) * W.spread;
+    dir.y += (Math.random() - 0.5) * W.spread * 0.6;
+    dir.z += (Math.random() - 0.5) * W.spread;
+    dir.normalize();
+  }
 
-  spawnTracer(origin, dir, 48);
-  spawnBolt(origin, dir, shooter.id);
+  const tWall = castWalls(origin.x, origin.y, origin.z, dir.x, dir.y, dir.z, W.range);
+  spawnTracer(origin, dir, Math.min(tWall, W.range), W.tracer);
+  spawnBolt(origin, dir, shooter.id, W.boltColor, W.boltSize);
 
-  // Instant hitscan (bolt is VFX only — avoid double damage)
-  if (offlineMatch) {
-    let best = null;
-    let bestT = 55;
-    const tgt = new THREE.Vector3();
-    const closest = new THREE.Vector3();
-    for (const target of offlineMatch.roster) {
-      if (target.id === shooter.id || !target.alive) continue;
-      tgt.set(target.x, target.y, target.z);
-      const t = closest.copy(tgt).sub(origin).dot(dir);
-      if (t < 0.5 || t > bestT) continue;
-      closest.copy(origin).addScaledVector(dir, t);
-      if (closest.distanceTo(tgt) < 1.2) {
-        bestT = t;
-        best = target;
-      }
+  // Hitscan — walls clip the ray, bolt is VFX only
+  let best = null;
+  let bestT = Math.min(tWall, W.range);
+  const tgt = new THREE.Vector3();
+  const closest = new THREE.Vector3();
+  for (const target of offlineMatch.roster) {
+    if (target.id === shooter.id || !target.alive) continue;
+    tgt.set(target.x, target.y, target.z);
+    const t = closest.copy(tgt).sub(origin).dot(dir);
+    if (t < 0.5 || t > bestT) continue;
+    closest.copy(origin).addScaledVector(dir, t);
+    if (closest.distanceTo(tgt) < 1.2) {
+      bestT = t;
+      best = target;
     }
-    if (best) {
-      best.hp -= DMG;
-      spawnImpact(origin.x + dir.x * bestT, origin.y + dir.y * bestT, origin.z + dir.z * bestT, true);
-      if (shooter.id === myId) {
-        els.hitMarker.classList.add('show');
-        setTimeout(() => els.hitMarker.classList.remove('show'), 140);
-      }
-      if (best.hp <= 0) {
-        best.hp = 0;
-        best.alive = false;
-        best.deaths += 1;
-        best.lives = Math.max(0, best.lives - 1);
-        best.respawnAt = now + 2500;
-        shooter.kills += 1;
-        shooter.tokens += 5;
-        const text = `${shooter.name} ⚡ ${best.name}`;
-        pushFeed(text);
-        showCenter(text, 900);
-      }
+  }
+  if (best) {
+    const absorbed = W.oneShot ? 0 : Math.min(best.armor || 0, W.dmg * ARMOR_ABSORB);
+    best.armor = Math.max(0, (best.armor || 0) - absorbed);
+    best.hp -= W.dmg - absorbed;
+    flashEntityById(best.id);
+    spawnImpact(origin.x + dir.x * bestT, origin.y + dir.y * bestT, origin.z + dir.z * bestT, true);
+    if (shooter.id === myId) {
+      els.hitMarker.classList.add('show');
+      setTimeout(() => els.hitMarker.classList.remove('show'), 140);
     }
+    if (best.hp <= 0) {
+      best.hp = 0;
+      best.alive = false;
+      best.deaths += 1;
+      best.lives = Math.max(0, best.lives - 1);
+      best.respawnAt = now + 2500;
+      shooter.kills += 1;
+      shooter.tokens += 5;
+      const combo = now - (shooter.lastKillAt || 0) < 4000 ? (shooter.streak || 1) + 1 : 1;
+      shooter.lastKillAt = now;
+      shooter.streak = combo;
+      let text = `${shooter.name} ⚡ ${best.name}`;
+      const tag = STREAK_TEXT[combo] || (combo >= 5 ? 'RAMPAGE' : '');
+      if (tag) text += ` · ${tag}!`;
+      pushFeed(text);
+      showCenter(text, 900);
+    }
+  } else if (tWall < W.range) {
+    spawnImpact(
+      origin.x + dir.x * tWall,
+      origin.y + dir.y * tWall,
+      origin.z + dir.z * tWall,
+      false
+    );
+  }
+
+  if (W.mag >= 0 && shooter.ammo <= 0) {
+    if (shooter.weapon === 'gold') spendGolden(shooter);
+    else startReload(shooter, now);
   }
 
   if (shooter.id === myId) {
     flashMuzzle();
-    playZap();
+    playGun(W.sound);
+    pitch = THREE.MathUtils.clamp(pitch + W.recoil * (0.8 + Math.random() * 0.4), -1.4, 1.4);
+    yaw += W.recoil * 0.35 * (Math.random() < 0.5 ? -1 : 1);
   }
   return true;
 }
@@ -1024,15 +1421,31 @@ function updateBots(dt, now) {
   const me = offlineMatch.roster.find((p) => p.id === myId);
   for (const bot of offlineMatch.roster.filter((p) => p.bot)) {
     if (!bot.alive) continue;
+    finishReloadIfDue(bot, now);
     const dx = me.x - bot.x;
     const dz = me.z - bot.z;
-    const dist = Math.hypot(dx, dz);
-    bot.yaw = Math.atan2(dx, -dz) + Math.sin(now * 0.0015 + bot.spawnIndex) * 0.2;
+    const dist = Math.hypot(dx, dz) || 0.001;
+    const nx = dx / dist;
+    const nz = dz / dist;
+    bot.yaw = Math.atan2(dx, -dz) + Math.sin(now * 0.0015 + bot.spawnIndex) * 0.15;
     bot.pitch = THREE.MathUtils.clamp((me.y - bot.y) * 0.02, -0.4, 0.4);
-    if (dist > 5) moveEntity(bot, -1, Math.sin(now * 0.001 + bot.spawnIndex) * 0.5, dist > 16, false, dt);
-    else if (dist < 2.8) moveEntity(bot, 1, 0.6, false, Math.random() < 0.01, dt);
-    else moveEntity(bot, 0, Math.sin(now * 0.002) * 0.3, false, false, dt);
-    if (dist < 28 && Math.random() < 0.012) applyShot(bot, now);
+
+    // Line-of-sight gate — no more shooting through walls
+    const losT = castWalls(bot.x, bot.y, bot.z, nx, 0, nz, dist);
+    const visible = losT >= dist - 0.6 && Math.abs(me.y - bot.y) < 3;
+
+    const lowHp = bot.hp < bot.maxHp * 0.35;
+    let forward = visible && lowHp ? 1 : -1; // retreat when exposed + hurt
+    let strafe = Math.sin(now * 0.0018 + bot.spawnIndex * 2.1) * (visible ? 1 : 0.35);
+    if (dist > 24) strafe *= 0.35;
+    const wantJump = visible && dist < 16 && Math.random() < 0.004;
+    moveEntity(bot, forward, strafe, dist > 18 && !lowHp, wantJump, dt);
+
+    const W = getWeapon(bot.weapon);
+    if (visible && dist < W.range * 0.55) {
+      const chance = W.auto ? 0.02 + (1 - dist / 32) * 0.04 : 0.012;
+      if (Math.random() < chance) applyShot(bot, now);
+    }
   }
 }
 
@@ -1062,6 +1475,8 @@ function offlineTick(dt) {
   }
 
   updateBots(dt, now);
+  tickPads(now);
+  for (const p of offlineMatch.roster) finishReloadIfDue(p, now);
 
   for (const p of offlineMatch.roster) {
     if (!p.alive && p.respawnAt && now >= p.respawnAt) {
@@ -1075,8 +1490,14 @@ function offlineTick(dt) {
       p.hp = p.maxHp || 100;
       p.alive = true;
       p.respawnAt = 0;
+      // GE rules: death strips specials back to the trusty PP7
+      p.weapon = 'pp7';
+      p.ammo = -1;
+      p.reloadingUntil = 0;
+      p.armor = 0;
       if (p.lives <= 0) p.lives = 3;
       if (p.id === myId) {
+        mountViewmodel('pp7');
         yaw = p.yaw;
         pitch = 0;
         camera.position.set(p.x, p.y, p.z);
@@ -1187,8 +1608,13 @@ function connect(name) {
       clearTimeout(timer);
       offlineMode = false;
       myId = msg.id;
+      matchStartedAt = Date.now();
+      netPickups = [];
+      netWeapon = 'pp7';
+      netAmmo = -1;
       if (msg.mapId) loadSelectedMap(msg.mapId);
       else loadSelectedMap(selectedMapId);
+      mountViewmodel('pp7');
       const mine = getAgent(selectedAgentId);
       if (agentTag) agentTag.textContent = `#${String(mine.slot).padStart(2, '0')} ${mine.name}`;
       beginMission(`${mine.name} — ${getMap(selectedMapId).name}`);
@@ -1197,19 +1623,44 @@ function connect(name) {
     if (msg.type === 'state') {
       syncRemotes(msg.players);
       const me = msg.players.find((p) => p.id === myId);
+      if (me) {
+        const wid = me.weapon || 'pp7';
+        if (wid !== netWeapon) {
+          netWeapon = wid;
+          netAmmo = me.ammo != null ? me.ammo : -1;
+          mountViewmodel(wid);
+        } else {
+          netAmmo = me.ammo != null ? me.ammo : -1;
+        }
+      }
       if (me?.alive) camera.position.set(me.x, me.y, me.z);
       updateHud(msg);
       return;
     }
     if (msg.type === 'shot') {
-      spawnTracer(msg.origin, msg.impact);
-      if (msg.from === myId) {
-        flashMuzzle();
-        if (msg.hit) {
+      if (msg.from !== myId) spawnTracer(msg.origin, msg.impact);
+      else flashMuzzle();
+      if (msg.hit) {
+        flashEntityById(msg.hit);
+        if (msg.from === myId) {
           els.hitMarker.classList.add('show');
           setTimeout(() => els.hitMarker.classList.remove('show'), 100);
         }
       }
+      return;
+    }
+    if (msg.type === 'hit') {
+      flashEntityById(msg.target);
+      return;
+    }
+    if (msg.type === 'pickup') {
+      if (msg.kind === 'gold') showCenter(`${msg.name} HAS THE GOLDEN SKULLGUN`, 1500);
+      else if (msg.by === myId) playPickup();
+      return;
+    }
+    if (msg.type === 'goldlive') {
+      showCenter('THE GOLDEN SKULLGUN IS LIVE', 2000);
+      playGoldSting();
       return;
     }
     if (msg.type === 'kill') {
@@ -1233,6 +1684,7 @@ function sendInput() {
       sprint: keys.sprint,
       jump: keys.jump,
       shoot: shooting,
+      click: shootPulse,
       yaw,
       pitch,
     })
@@ -1365,9 +1817,18 @@ addEventListener('keydown', (e) => {
   }
   if (e.code === 'KeyF' || e.code === 'ControlLeft' || e.code === 'ControlRight') {
     keys.shootHeld = true;
+    triggerFresh = true;
     firePrimary();
   }
-  if (e.code === 'KeyR' && inMatch()) tryPointerLock();
+  if (e.code === 'KeyR' && inMatch()) {
+    tryPointerLock();
+    if (offlineMode && offlineMatch) {
+      const me = offlineMatch.roster.find((p) => p.id === myId);
+      if (me?.alive) startReload(me, Date.now());
+    } else if (ws && ws.readyState === 1) {
+      ws.send(JSON.stringify({ type: 'reload' }));
+    }
+  }
 });
 
 addEventListener('keyup', (e) => {
@@ -1393,35 +1854,64 @@ function tryPointerLock() {
 
 function firePrimary() {
   if (!inMatch() || !localAlive) return false;
+  const wid = currentWeaponId();
+  const W = getWeapon(wid);
   const now = Date.now();
-  if (now - lastLocalShot < FIRE_MS) return false;
-  lastLocalShot = now;
+  if (!W.auto && !triggerFresh) return false;
+  if (now - lastLocalShot < W.cd) return false;
 
   if (offlineMode && offlineMatch) {
     const me = offlineMatch.roster.find((p) => p.id === myId);
-    if (me?.alive) applyShot(me, now);
-  } else {
-    const { origin, dir } = getAimRay();
-    spawnTracer(origin, dir, 48);
-    spawnBolt(origin, dir.clone(), myId || 'local');
-    flashMuzzle();
-    playZap();
+    if (!me?.alive) return false;
+    finishReloadIfDue(me, now);
+    triggerFresh = false;
+    return applyShot(me, now);
   }
+
+  // Netplay: optimistic local VFX — server stays authoritative on damage/ammo
+  triggerFresh = false;
+  lastLocalShot = now;
+  const aim = getAimRay();
+  const origin = aim.origin;
+  let dir = aim.dir.clone();
+  if (W.spread > 0) {
+    dir.x += (Math.random() - 0.5) * W.spread;
+    dir.y += (Math.random() - 0.5) * W.spread * 0.6;
+    dir.z += (Math.random() - 0.5) * W.spread;
+    dir.normalize();
+  }
+  const tWall = castWalls(origin.x, origin.y, origin.z, dir.x, dir.y, dir.z, W.range);
+  spawnTracer(origin, dir, Math.min(tWall, W.range), W.tracer);
+  spawnBolt(origin, dir.clone(), myId || 'local', W.boltColor, W.boltSize);
+  flashMuzzle();
+  playGun(W.sound);
+  pitch = THREE.MathUtils.clamp(pitch + W.recoil * (0.8 + Math.random() * 0.4), -1.4, 1.4);
+  yaw += W.recoil * 0.35 * (Math.random() < 0.5 ? -1 : 1);
   return true;
 }
 
 function onPrimaryDown(e) {
   if (!inMatch()) return;
+  if (e.button === 2) {
+    keys.ads = true;
+    if (e.cancelable) e.preventDefault();
+    return;
+  }
   if (e.button !== 0 && e.pointerType !== 'touch') return;
   if (e.cancelable) e.preventDefault();
   ensureAudio();
   tryPointerLock();
   canvas.focus();
   keys.shootHeld = true;
+  triggerFresh = true;
   firePrimary();
 }
 
 function onPrimaryUp(e) {
+  if (e.button === 2) {
+    keys.ads = false;
+    return;
+  }
   if (e.button === 0 || e.pointerType === 'touch') keys.shootHeld = false;
 }
 
@@ -1443,8 +1933,9 @@ addEventListener('mousemove', (e) => {
     return;
   }
   pointerLocked = true;
-  yaw -= e.movementX * 0.0024;
-  pitch -= e.movementY * 0.0024;
+  const sens = keys.ads ? 0.0013 : 0.0024;
+  yaw -= e.movementX * sens;
+  pitch -= e.movementY * sens;
   pitch = Math.max(-1.4, Math.min(1.4, pitch));
   // DO NOT fire here — that was the glitch storm
   if (e.buttons & 1) keys.shootHeld = true;
@@ -1478,11 +1969,24 @@ function tick() {
   camera.rotation.order = 'YXZ';
   camera.rotation.y = yaw;
   camera.rotation.x = pitch;
+
+  // Right-click aim-down-sights: FOV zoom + gun centers up
+  const adsTarget = keys.ads && pointerLocked ? 1 : 0;
+  adsBlend += (adsTarget - adsBlend) * Math.min(1, dt * 10);
+  const targetFov = 74 - adsBlend * 26;
+  if (Math.abs(camera.fov - targetFov) > 0.01) {
+    camera.fov = targetFov;
+    camera.updateProjectionMatrix();
+  }
+  if (crosshairEl) crosshairEl.classList.toggle('ads', adsBlend > 0.5);
+
   // Don't fight muzzle recoil every frame
   if (muzzleFlash.intensity < 0.1) {
-    gunGroup.position.x = Math.sin(t * 2.2) * 0.008;
-    gunGroup.position.y = Math.cos(t * 3.1) * 0.006;
-    gunGroup.position.z = 0;
+    gunGroup.position.x =
+      Math.sin(t * 2.2) * 0.008 * (1 - adsBlend) - 0.165 * adsBlend;
+    gunGroup.position.y =
+      Math.cos(t * 3.1) * 0.006 * (1 - adsBlend) + 0.03 * adsBlend;
+    gunGroup.position.z = -0.07 * adsBlend;
     gunGroup.rotation.x = 0;
   }
 

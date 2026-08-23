@@ -36,6 +36,59 @@ export function getMap(id) {
   return MAPS.find((m) => m.id === id) || MAPS[0];
 }
 
+/** Weapon/armor pad spots per arena — hand-placed on verified open floor. */
+export const PAD_SPOTS = {
+  stadium: [
+    { x: -27, z: -27, w: 'kf7' },
+    { x: 27, z: -27, w: 'dd' },
+    { x: -27, z: 27, w: 'klobb' },
+    { x: 27, z: 27, w: 'armor' },
+    { x: -21, z: -42, w: 'armor' },
+    { x: 21, z: 42, w: 'kf7' },
+  ],
+  lunch: [
+    { x: -22, z: -22, w: 'kf7' },
+    { x: 22, z: -22, w: 'dd' },
+    { x: -22, z: 22, w: 'klobb' },
+    { x: 22, z: 22, w: 'armor' },
+    { x: -17, z: -40, w: 'armor' },
+    { x: 17, z: 40, w: 'kf7' },
+  ],
+  starbucks: [
+    { x: -20, z: -20, w: 'kf7' },
+    { x: 20, z: -20, w: 'dd' },
+    { x: -20, z: 20, w: 'klobb' },
+    { x: 20, z: 20, w: 'armor' },
+    { x: -14, z: -31, w: 'armor' },
+    { x: 14, z: 31, w: 'kf7' },
+  ],
+  megacorp: [
+    { x: -25, z: -25, w: 'kf7' },
+    { x: 25, z: -25, w: 'dd' },
+    { x: -25, z: 25, w: 'klobb' },
+    { x: 25, z: 25, w: 'armor' },
+    { x: -13, z: -41, w: 'armor' },
+    { x: 13, z: 41, w: 'kf7' },
+  ],
+  facility: [
+    { x: -29, z: -29, w: 'kf7' },
+    { x: 29, z: -29, w: 'dd' },
+    { x: -29, z: 29, w: 'klobb' },
+    { x: 29, z: 29, w: 'armor' },
+    { x: 0, z: -58, w: 'armor' },
+    { x: 0, z: 46, w: 'kf7' },
+  ],
+};
+
+/** Golden Skullgun drop point — open ground, away from center props. */
+export const GOLD_SPOTS = {
+  stadium: [0, 0],
+  lunch: [0, 38],
+  starbucks: [0, 12],
+  megacorp: [0, -26],
+  facility: [0, -44],
+};
+
 let THREE;
 
 export function bindThree(T) {
@@ -207,6 +260,8 @@ function api(ctx) {
         maxX: x + w / 2,
         minZ: z - d / 2,
         maxZ: z + d / 2,
+        base: y - h / 2,
+        top: y + h / 2,
       });
     }
     return m;

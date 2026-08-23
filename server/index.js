@@ -8,8 +8,6 @@ const MAX_PLAYERS = 4;
 const TICK_MS = 50;
 const MATCH_SECONDS = 180;
 const PLAYER_HP = 100;
-const WEAPON_DAMAGE = 34;
-const FIRE_COOLDOWN_MS = 180;
 const RESPAWN_MS = 2500;
 const HIT_RADIUS = 0.95;
 const PLAYER_HEIGHT = 1.65;
@@ -24,9 +22,80 @@ const MAP_DEFS = {
   facility: { half: 62, spawnR: 52 },
 };
 
+// ===== Arsenal — keep in sync with public/js/weapons.js =====
+const WEAPONS = {
+  pp7: { name: 'PP7 RAY', dmg: 34, cd: 170, mag: -1, reloadMs: 0, spread: 0, auto: true, range: 70, oneShot: false },
+  klobber: { name: 'KLOBBER', dmg: 15, cd: 95, mag: 70, reloadMs: 1400, spread: 0.03, auto: true, range: 60, oneShot: false },
+  dd: { name: 'DD SKULL', dmg: 52, cd: 430, mag: 21, reloadMs: 1600, spread: 0.006, auto: false, range: 80, oneShot: false },
+  kf7: { name: 'KF7 SKULLETV', dmg: 26, cd: 115, mag: 90, reloadMs: 2000, spread: 0.016, auto: true, range: 75, oneShot: false },
+  gold: { name: 'GOLDEN SKULLGUN', dmg: 250, cd: 850, mag: 5, reloadMs: 0, spread: 0, auto: false, range: 99, oneShot: true },
+};
+const GOLD_SHOTS = 5;
+const PAD_RADIUS = 1.5;
+const PAD_RESPAWN_MS = 22000;
+const GOLD_LIVE_MS = 20000;
+const GOLD_RESPAWN_MS = 30000;
+const ARMOR_ABSORB = 0.55;
+const STREAK_TEXT = { 2: 'DOUBLE KILL', 3: 'TRIPLE KILL', 4: 'KILLING SPREE' };
+
+const GUN_PADS = {
+  stadium: [
+    [-27, -27, 'kf7'], [27, -27, 'dd'], [-27, 27, 'klobb'], [27, 27, 'armor'], [-21, -42, 'armor'], [21, 42, 'kf7'],
+  ],
+  lunch: [
+    [-22, -22, 'kf7'], [22, -22, 'dd'], [-22, 22, 'klobb'], [22, 22, 'armor'], [-17, -40, 'armor'], [17, 40, 'kf7'],
+  ],
+  starbucks: [
+    [-20, -20, 'kf7'], [20, -20, 'dd'], [-20, 20, 'klobb'], [20, 20, 'armor'], [-14, -31, 'armor'], [14, 31, 'kf7'],
+  ],
+  megacorp: [
+    [-25, -25, 'kf7'], [25, -25, 'dd'], [-25, 25, 'klobb'], [25, 25, 'armor'], [-13, -41, 'armor'], [13, 41, 'kf7'],
+  ],
+  facility: [
+    [-29, -29, 'kf7'], [29, -29, 'dd'], [-29, 29, 'klobb'], [29, 29, 'armor'], [0, -58, 'armor'], [0, 46, 'kf7'],
+  ],
+};
+const GOLD_SPOTS = {
+  stadium: [0, 0],
+  lunch: [0, 38],
+  starbucks: [0, 12],
+  megacorp: [0, -26],
+  facility: [0, -44],
+};
+
 let mapId = 'facility';
 let MAP_HALF = MAP_DEFS.facility.half;
 let SPAWNS = cornerSpawns(MAP_DEFS.facility.spawnR);
+/** @type {{id:string,x:number,z:number,w:string,kind:string,active:boolean,respawnAt:number}[]} */
+let pads = [];
+let goldPad = null;
+
+function buildPads() {
+  pads = (GUN_PADS[mapId] || []).map(([x, z, w], i) => ({
+    id: `${mapId}-pad${i}`,
+    x,
+    z,
+    w,
+    kind: w === 'armor' ? 'armor' : 'gun',
+    active: true,
+    respawnAt: 0,
+  }));
+  const g = GOLD_SPOTS[mapId] || [0, 0];
+  goldPad = { x: g[0], z: g[1], spawned: false, active: false, respawnAt: 0 };
+}
+
+function resetPads(now) {
+  match.startedAt = now;
+  for (const pad of pads) {
+    pad.active = true;
+    pad.respawnAt = 0;
+  }
+  if (goldPad) {
+    goldPad.spawned = false;
+    goldPad.active = false;
+    goldPad.respawnAt = 0;
+  }
+}
 
 function cornerSpawns(r) {
   return [
@@ -42,6 +111,8 @@ function applyMap(id) {
   mapId = MAP_DEFS[id] ? id : 'facility';
   MAP_HALF = def.half;
   SPAWNS = cornerSpawns(def.spawnR);
+  buildPads();
+  resetPads(Date.now());
 }
 
 const AGENTS = {
@@ -64,6 +135,7 @@ const players = new Map();
 let match = {
   started: false,
   endsAt: 0,
+  startedAt: Date.now(),
   killFeed: [],
   mapId: 'facility',
 };
@@ -112,6 +184,12 @@ function spawnPlayer(id, name, agentId) {
     respawnAt: 0,
     spawnIndex,
     connected: true,
+    weapon: 'pp7',
+    ammo: -1,
+    reloadUntil: 0,
+    armor: 0,
+    lastKillAt: 0,
+    streak: 0,
   };
 }
 
@@ -134,7 +212,28 @@ function publicPlayer(p) {
     lives: p.lives,
     alive: p.alive,
     shooting: p.shooting,
+    weapon: p.weapon,
+    ammo: p.ammo,
+    rt: Math.max(0, (p.reloadUntil || 0) - Date.now()),
+    armor: p.armor || 0,
   };
+}
+
+function publicPickups() {
+  const list = pads.map((pad) => ({
+    x: round1(pad.x),
+    z: round1(pad.z),
+    w: pad.w,
+    a: pad.active ? 1 : 0,
+  }));
+  if (goldPad && goldPad.spawned) {
+    list.push({ x: round1(goldPad.x), z: round1(goldPad.z), w: 'gold', a: goldPad.active ? 1 : 0 });
+  }
+  return list;
+}
+
+function round1(n) {
+  return Math.round(n * 10) / 10;
 }
 
 function snapshot(forId) {
@@ -146,6 +245,7 @@ function snapshot(forId) {
     players: [...players.values()].map(publicPlayer),
     killFeed: match.killFeed.slice(-6),
     maxPlayers: MAX_PLAYERS,
+    pickups: publicPickups(),
   };
 }
 
@@ -170,7 +270,9 @@ function pushFeed(text) {
 function maybeStartMatch() {
   if (!match.started && players.size >= 1) {
     match.started = true;
+    match.startedAt = Date.now();
     match.endsAt = Date.now() + MATCH_SECONDS * 1000;
+    resetPads(match.startedAt);
     broadcast({ type: 'match', started: true, endsAt: match.endsAt, seconds: MATCH_SECONDS });
   }
 }
@@ -193,7 +295,14 @@ function resetMatch() {
     p.lives = 3;
     p.alive = true;
     p.respawnAt = 0;
+    p.weapon = 'pp7';
+    p.ammo = -1;
+    p.reloadUntil = 0;
+    p.armor = 0;
+    p.lastKillAt = 0;
+    p.streak = 0;
   }
+  resetPads(Date.now());
   maybeStartMatch();
 }
 
@@ -217,19 +326,64 @@ function applyJumpPhysics(p, wantJump, dt) {
   }
 }
 
-function tryShoot(shooter) {
+function startReload(p, now) {
+  const W = WEAPONS[p.weapon] || WEAPONS.pp7;
+  if (W.mag < 0 || p.reloadUntil || p.ammo === W.mag) return false;
+  p.reloadUntil = now + W.reloadMs;
+  return true;
+}
+
+function finishReloadIfDue(p, now) {
+  if (p.reloadUntil && now >= p.reloadUntil) {
+    p.reloadUntil = 0;
+    p.ammo = (WEAPONS[p.weapon] || WEAPONS.pp7).mag;
+  }
+}
+
+function spendGolden(p) {
+  p.weapon = 'pp7';
+  p.ammo = -1;
+  p.reloadUntil = 0;
+  pushFeed(`${p.name} BURNED THE GOLD`);
+}
+
+function applyDamage(target, dmg, ignoreArmor) {
+  const absorbed = ignoreArmor ? 0 : Math.min(target.armor || 0, dmg * ARMOR_ABSORB);
+  target.armor = Math.max(0, (target.armor || 0) - absorbed);
+  target.hp -= dmg - absorbed;
+}
+
+function tryShoot(shooter, click) {
   const now = Date.now();
   if (!shooter.alive) return;
-  if (now - shooter.lastShot < FIRE_COOLDOWN_MS) return;
+  finishReloadIfDue(shooter, now);
+  if (shooter.reloadUntil) return;
+  const W = WEAPONS[shooter.weapon] || WEAPONS.pp7;
+  if (!W.auto && !click) return;
+  if (now - shooter.lastShot < W.cd) return;
+  if (W.mag >= 0 && shooter.ammo <= 0) {
+    startReload(shooter, now);
+    return;
+  }
   shooter.lastShot = now;
   shooter.shooting = true;
+  if (W.mag >= 0) shooter.ammo -= 1;
 
-  const dirX = Math.sin(shooter.yaw) * Math.cos(shooter.pitch);
-  const dirY = Math.sin(shooter.pitch);
-  const dirZ = -Math.cos(shooter.yaw) * Math.cos(shooter.pitch);
+  let dirX = Math.sin(shooter.yaw) * Math.cos(shooter.pitch);
+  let dirY = Math.sin(shooter.pitch);
+  let dirZ = -Math.cos(shooter.yaw) * Math.cos(shooter.pitch);
+  if (W.spread > 0) {
+    dirX += (Math.random() - 0.5) * W.spread;
+    dirY += (Math.random() - 0.5) * W.spread * 0.6;
+    dirZ += (Math.random() - 0.5) * W.spread;
+    const len = Math.hypot(dirX, dirY, dirZ) || 1;
+    dirX /= len;
+    dirY /= len;
+    dirZ /= len;
+  }
 
   let best = null;
-  let bestT = 70;
+  let bestT = W.range;
 
   for (const target of players.values()) {
     if (target.id === shooter.id || !target.alive) continue;
@@ -255,9 +409,9 @@ function tryShoot(shooter) {
   }
 
   const impact = {
-    x: shooter.x + dirX * Math.min(bestT, 60),
-    y: shooter.y + dirY * Math.min(bestT, 60),
-    z: shooter.z + dirZ * Math.min(bestT, 60),
+    x: shooter.x + dirX * Math.min(bestT, W.range),
+    y: shooter.y + dirY * Math.min(bestT, W.range),
+    z: shooter.z + dirZ * Math.min(bestT, W.range),
   };
 
   broadcast({
@@ -269,8 +423,7 @@ function tryShoot(shooter) {
   });
 
   if (best) {
-    best.hp -= WEAPON_DAMAGE;
-    best.tokens = Math.max(0, best.tokens);
+    applyDamage(best, W.dmg, W.oneShot);
     if (best.hp <= 0) {
       best.hp = 0;
       best.alive = false;
@@ -279,16 +432,27 @@ function tryShoot(shooter) {
       best.respawnAt = now + RESPAWN_MS;
       shooter.kills += 1;
       shooter.tokens += 5;
-      pushFeed(`${shooter.name} ⚡ ${best.name}`);
+      const combo = now - (shooter.lastKillAt || 0) < 4000 ? (shooter.streak || 1) + 1 : 1;
+      shooter.lastKillAt = now;
+      shooter.streak = combo;
+      let text = `${shooter.name} ⚡ ${best.name}`;
+      const tag = STREAK_TEXT[combo] || (combo >= 5 ? 'RAMPAGE' : '');
+      if (tag) text += ` · ${tag}!`;
+      pushFeed(text);
       broadcast({
         type: 'kill',
         killer: shooter.id,
         victim: best.id,
-        text: `${shooter.name} ⚡ ${best.name}`,
+        text,
       });
     } else {
       broadcast({ type: 'hit', target: best.id, hp: best.hp, by: shooter.id });
     }
+  }
+
+  if (W.mag >= 0 && shooter.ammo <= 0) {
+    if (shooter.weapon === 'gold') spendGolden(shooter);
+    else startReload(shooter, now);
   }
 }
 
@@ -335,6 +499,11 @@ wss.on('connection', (ws) => {
     const p = playerId ? players.get(playerId) : null;
     if (!p) return;
 
+    if (msg.type === 'reload') {
+      startReload(p, Date.now());
+      return;
+    }
+
     if (msg.type === 'input') {
       if (!p.alive) return;
       const yaw = Number(msg.yaw) || 0;
@@ -363,7 +532,7 @@ wss.on('connection', (ws) => {
         clampArena(p);
       }
       applyJumpPhysics(p, !!msg.jump, dt);
-      if (msg.shoot) tryShoot(p);
+      if (msg.shoot) tryShoot(p, !!msg.click);
       else p.shooting = false;
       return;
     }
@@ -395,6 +564,7 @@ setInterval(() => {
   const now = Date.now();
 
   for (const p of players.values()) {
+    finishReloadIfDue(p, now);
     if (!p.alive && p.respawnAt && now >= p.respawnAt) {
       if (p.lives <= 0) {
         p.lives = 3;
@@ -408,9 +578,69 @@ setInterval(() => {
       p.hp = p.maxHp || PLAYER_HP;
       p.alive = true;
       p.respawnAt = 0;
+      // Death strips specials back to the trusty PP7
+      p.weapon = 'pp7';
+      p.ammo = -1;
+      p.reloadUntil = 0;
+      p.armor = 0;
       broadcast({ type: 'respawn', id: p.id, player: publicPlayer(p) });
     }
     p.shooting = false;
+  }
+
+  // Floor pads: respawn + proximity pickup (server owns positions)
+  for (const pad of pads) {
+    if (!pad.active && now >= pad.respawnAt) {
+      pad.active = true;
+    }
+    if (!pad.active) continue;
+    for (const p of players.values()) {
+      if (!p.alive) continue;
+      if (Math.hypot(p.x - pad.x, p.z - pad.z) > PAD_RADIUS) continue;
+      let took = false;
+      if (pad.kind === 'armor') {
+        if ((p.armor || 0) < 95) {
+          p.armor = 100;
+          took = true;
+        }
+      } else {
+        p.weapon = pad.w;
+        p.ammo = (WEAPONS[pad.w] || WEAPONS.pp7).mag;
+        p.reloadUntil = 0;
+        took = true;
+      }
+      if (took) {
+        pad.active = false;
+        pad.respawnAt = now + PAD_RESPAWN_MS;
+        broadcast({ type: 'pickup', by: p.id, name: p.name, kind: pad.kind, w: pad.w });
+        break;
+      }
+    }
+  }
+
+  // The Golden Skullgun schedule
+  if (goldPad && match.started) {
+    if (!goldPad.spawned && now - match.startedAt >= GOLD_LIVE_MS) {
+      goldPad.spawned = true;
+      goldPad.active = true;
+      broadcast({ type: 'goldlive' });
+    } else if (goldPad.spawned && !goldPad.active && now >= goldPad.respawnAt) {
+      goldPad.active = true;
+      broadcast({ type: 'goldlive' });
+    }
+    if (goldPad.active) {
+      for (const p of players.values()) {
+        if (!p.alive) continue;
+        if (Math.hypot(p.x - goldPad.x, p.z - goldPad.z) > PAD_RADIUS) continue;
+        p.weapon = 'gold';
+        p.ammo = GOLD_SHOTS;
+        p.reloadUntil = 0;
+        goldPad.active = false;
+        goldPad.respawnAt = now + GOLD_RESPAWN_MS;
+        broadcast({ type: 'pickup', by: p.id, name: p.name, kind: 'gold', w: 'gold' });
+        break;
+      }
+    }
   }
 
   if (match.started && now >= match.endsAt) {
