@@ -3,6 +3,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { AGENTS, getAgent, statBar } from './roster.js';
 import { MAPS, getMap, buildMapById, bindThree, PAD_SPOTS, GOLD_SPOTS } from './maps.js';
 import { WEAPONS, GOLD_SHOTS, GUN_RANK, getWeapon } from './weapons.js';
+import { BRAND } from './brand.js';
 
 const PALETTE = {
   cream: 0xfff2b3,
@@ -427,7 +428,7 @@ function drawRadar() {
       g.save();
       g.translate(px, pz);
       g.rotate(-yaw);
-      g.fillStyle = '#fff2b3';
+      g.fillStyle = BRAND.cream;
       g.beginPath();
       g.moveTo(0, -7);
       g.lineTo(5, 6);
@@ -437,14 +438,14 @@ function drawRadar() {
       g.fill();
       g.restore();
     } else {
-      g.fillStyle = p.color || '#e5392d';
+      g.fillStyle = p.color || BRAND.red;
       g.beginPath();
       g.arc(px, pz, 3.5, 0, Math.PI * 2);
       g.fill();
     }
   }
 
-  g.strokeStyle = '#6baf6e';
+  g.strokeStyle = BRAND.green;
   g.lineWidth = 2;
   g.strokeRect(1, 1, w - 2, h - 2);
 }
@@ -488,35 +489,76 @@ function makeAgentMesh(agentOrColor) {
   const color = agent.color || agent.tint || '#6BAF6E';
 
   if (models.agent) {
+    // Real-sample skins — unique bodies built from the NSES asset kit
+    if (agent.id === 'mini' && models.mohawk) {
+      // MINI MOHAWK: the mohawk gremlin head IS the agent
+      const g = new THREE.Group();
+      const head = models.mohawk.clone(true);
+      head.traverse((o) => {
+        if (o.isMesh) {
+          o.castShadow = true;
+          o.receiveShadow = true;
+        }
+      });
+      g.add(head);
+      g.scale.setScalar((agent.scale || 1) * 0.62);
+      g.userData.hoverBob = true;
+      return g;
+    }
+    if (agent.id === 'drone' && models.badge) {
+      // RAY DRONE: floating crew-badge chassis with an NSES-green underglow ring
+      const g = new THREE.Group();
+      const disk = models.badge.clone(true);
+      disk.traverse((o) => {
+        if (o.isMesh) {
+          o.castShadow = true;
+          o.receiveShadow = true;
+        }
+      });
+      g.add(disk);
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(0.42, 0.05, 6, 20),
+        new THREE.MeshStandardMaterial({
+          color: PALETTE.green,
+          emissive: PALETTE.green,
+          emissiveIntensity: 0.9,
+        })
+      );
+      ring.rotation.x = Math.PI / 2;
+      ring.position.y = -0.62;
+      g.add(ring);
+      g.scale.setScalar(agent.scale || 1);
+      g.userData.hoverBob = true;
+      return g;
+    }
+
     const clone = models.agent.clone(true);
     clone.scale.multiplyScalar(agent.scale || 1);
     tintClone(clone, color);
-    if (agent.id === 'daisy') {
-      for (let i = 0; i < 5; i++) {
-        const petal = new THREE.Mesh(
-          new THREE.SphereGeometry(0.08, 6, 6),
-          new THREE.MeshStandardMaterial({
-            color: i % 2 ? 0xfff2b3 : 0xe5392d,
-            emissive: 0xfff2b3,
-            emissiveIntensity: 0.2,
-          })
-        );
-        const a = (i / 5) * Math.PI * 2;
-        petal.position.set(Math.cos(a) * 0.28, 1.72, Math.sin(a) * 0.28);
-        clone.add(petal);
-      }
+
+    if (agent.id === 'daisy' && models.daisy) {
+      // DAISY SKULL: real daisy crown from daisy.glb
+      const crown = models.daisy.clone(true);
+      crown.scale.multiplyScalar(0.32);
+      crown.position.set(0, 1.86, 0);
+      crown.rotation.z = 0.12;
+      clone.add(crown);
     }
-    if (agent.id === 'hazard') {
-      const stripe = new THREE.Mesh(
-        new THREE.BoxGeometry(0.7, 0.18, 0.7),
-        new THREE.MeshStandardMaterial({
-          color: 0xfff2b3,
-          emissive: 0xaa8800,
-          emissiveIntensity: 0.5,
-        })
-      );
-      stripe.position.y = 0.55;
-      clone.add(stripe);
+    if (agent.id === 'boss' && models.bag) {
+      // BOSS MARKER: daily delivery bag strapped to the back
+      const bag = models.bag.clone(true);
+      bag.scale.multiplyScalar(0.55);
+      bag.position.set(-0.1, 1.05, -0.45);
+      bag.rotation.y = Math.PI;
+      clone.add(bag);
+    }
+    if (agent.id === 'hazard' && models.hazard) {
+      // AGENT HAZARD: warning-sign plate worn as a backpack
+      const plate = models.hazard.clone(true);
+      plate.scale.multiplyScalar(0.5);
+      plate.position.set(0, 1.25, -0.42);
+      plate.rotation.y = Math.PI;
+      clone.add(plate);
     }
     if (agent.hover) clone.userData.hoverBob = true;
     return clone;
