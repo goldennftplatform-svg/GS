@@ -125,7 +125,18 @@ const AGENTS = {
 };
 
 const app = express();
-app.use(express.static(path.join(__dirname, '..', 'public')));
+app.use(
+  express.static(path.join(__dirname, '..', 'public'), {
+    etag: true,
+    setHeaders(res, filePath) {
+      if (/\.(js|mjs|css|html|json)$/i.test(filePath)) {
+        res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+      } else {
+        res.setHeader('Cache-Control', 'public, max-age=3600');
+      }
+    },
+  })
+);
 
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: '/ws' });
