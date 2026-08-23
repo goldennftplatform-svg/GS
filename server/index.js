@@ -9,7 +9,7 @@ const MAX_PLAYERS = 4;
 const TICK_MS = 50;
 const MATCH_SECONDS = 180;
 const PLAYER_HP = 100;
-const RESPAWN_MS = 2500;
+const RESPAWN_MS = 4500;
 const HIT_RADIUS = 0.95;
 const PLAYER_HEIGHT = 1.65;
 
@@ -198,6 +198,7 @@ function spawnPlayer(id, name, agentId) {
     shooting: false,
     lastShot: 0,
     respawnAt: 0,
+    spawnShieldUntil: Date.now() + 1500,
     spawnIndex,
     connected: true,
     weapon: 'pp7',
@@ -311,6 +312,7 @@ function resetMatch() {
     p.lives = 3;
     p.alive = true;
     p.respawnAt = 0;
+    p.spawnShieldUntil = Date.now() + 1500;
     p.weapon = 'pp7';
     p.ammo = -1;
     p.reloadUntil = 0;
@@ -406,6 +408,8 @@ function spendGolden(p) {
 }
 
 function applyDamage(target, dmg, ignoreArmor) {
+  // Spawn protection — freshly dropped agents can't be insta-plasted
+  if ((target.spawnShieldUntil || 0) > Date.now()) return;
   const absorbed = ignoreArmor ? 0 : Math.min(target.armor || 0, dmg * ARMOR_ABSORB);
   target.armor = Math.max(0, (target.armor || 0) - absorbed);
   target.hp -= dmg - absorbed;
@@ -425,6 +429,7 @@ function tryShoot(shooter, click) {
   }
   shooter.lastShot = now;
   shooter.shooting = true;
+  shooter.spawnShieldUntil = 0; // firing drops your spawn protection
   if (W.mag >= 0) shooter.ammo -= 1;
 
   let dirX = Math.sin(shooter.yaw) * Math.cos(shooter.pitch);
@@ -642,6 +647,7 @@ setInterval(() => {
       p.hp = p.maxHp || PLAYER_HP;
       p.alive = true;
       p.respawnAt = 0;
+      p.spawnShieldUntil = now + 1500; // spawn protection
       // Death strips specials back to the trusty PP7
       p.weapon = 'pp7';
       p.ammo = -1;

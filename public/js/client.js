@@ -1229,6 +1229,7 @@ function makeEntity(id, name, agentId, spawnIndex, bot = false) {
     alive: true,
     lastShot: 0,
     respawnAt: 0,
+    spawnShieldUntil: Date.now() + 1500,
     spawnIndex,
     bot,
     weapon: 'pp7',
@@ -1266,6 +1267,7 @@ function resetOfflineMatch() {
       lives: 3,
       alive: true,
       respawnAt: 0,
+      spawnShieldUntil: Date.now() + 1500,
       weapon: 'pp7',
       ammo: -1,
       reloadingUntil: 0,
@@ -1336,6 +1338,7 @@ function applyShot(shooter, now) {
     return false;
   }
   shooter.lastShot = now;
+  shooter.spawnShieldUntil = 0; // firing drops your spawn protection
   if (W.mag >= 0) shooter.ammo -= 1;
 
   let origin;
@@ -1352,9 +1355,11 @@ function applyShot(shooter, now) {
     dir = dirFromYawPitch(shooter.yaw, shooter.pitch);
   }
   if (W.spread > 0) {
-    dir.x += (Math.random() - 0.5) * W.spread;
-    dir.y += (Math.random() - 0.5) * W.spread * 0.6;
-    dir.z += (Math.random() - 0.5) * W.spread;
+    // Bots lead with worse aim — cover should actually work
+    const sp = W.spread * (shooter.bot ? 1.7 : 1);
+    dir.x += (Math.random() - 0.5) * sp;
+    dir.y += (Math.random() - 0.5) * sp * 0.6;
+    dir.z += (Math.random() - 0.5) * sp;
     dir.normalize();
   }
 
@@ -1369,6 +1374,8 @@ function applyShot(shooter, now) {
   const closest = new THREE.Vector3();
   for (const target of offlineMatch.roster) {
     if (target.id === shooter.id || !target.alive) continue;
+    // Spawn protection — freshly dropped agents can't be insta-plasted
+    if ((target.spawnShieldUntil || 0) > now) continue;
     tgt.set(target.x, target.y, target.z);
     const t = closest.copy(tgt).sub(origin).dot(dir);
     if (t < 0.5 || t > bestT) continue;
@@ -1393,7 +1400,7 @@ function applyShot(shooter, now) {
       best.alive = false;
       best.deaths += 1;
       best.lives = Math.max(0, best.lives - 1);
-      best.respawnAt = now + 2500;
+      best.respawnAt = now + 4500;
       shooter.kills += 1;
       shooter.tokens += 5;
       const combo = now - (shooter.lastKillAt || 0) < 4000 ? (shooter.streak || 1) + 1 : 1;
@@ -1507,18 +1514,26 @@ function updateBots(dt, now) {
     // Line-of-sight gate — no more shooting through walls
     const losT = castWalls(bot.x, bot.y, bot.z, nx, 0, nz, dist);
     const visible = losT >= dist - 0.6 && Math.abs(me.y - bot.y) < 3;
+    // Reaction memory: bots need sustained sight before they open fire
+    if (visible) {
+      if (!bot.sawAt) bot.sawAt = now;
+    } else {
+      bot.sawAt = 0;
+    }
+    const reacted = bot.sawAt && now - bot.sawAt > 420;
 
     const lowHp = bot.hp < bot.maxHp * 0.35;
-    let forward = visible && lowHp ? 1 : -1; // retreat when exposed + hurt
-    let strafe = Math.sin(now * 0.0018 + bot.spawnIndex * 2.1) * (visible ? 1 : 0.35);
+    // Lost sight? Drop to a cautious prowl instead of swarming your last spot
+    let forward = !visible ? 0.25 : visible && lowHp ? 1 : -1;
+    let strafe = Math.sin(now * 0.0018 + bot.spawnIndex * 2.1) * (visible ? 1 : 0.2);
     if (dist > 24) strafe *= 0.35;
-    const wantJump = visible && dist < 16 && Math.random() < 0.004;
-    moveEntity(bot, forward, strafe, dist > 18 && !lowHp, wantJump, dt);
+    moveEntity(bot, forward, strafe, dist > 18 && !lowHp, false, dt);
 
     const W = getWeapon(bot.weapon);
-    if (visible && dist < W.range * 0.55) {
-      const chance = W.auto ? 0.02 + (1 - dist / 32) * 0.04 : 0.012;
-      if (Math.random() < chance) applyShot(bot, now);
+    if (reacted && dist < W.range * 0.45) {
+      const closeBonus = Math.max(0, 1 - dist / (W.range * 0.45));
+      const rate = W.auto ? 0.55 + closeBonus * 0.75 : 0.3 + closeBonus * 0.4;
+      if (Math.random() < rate * dt) applyShot(bot, now);
     }
   }
 }
@@ -1564,6 +1579,8 @@ function offlineTick(dt) {
       p.hp = p.maxHp || 100;
       p.alive = true;
       p.respawnAt = 0;
+      // Spawn protection — breathe, find cover, then fight
+      p.spawnShieldUntil = now + 1500;
       // GE rules: death strips specials back to the trusty PP7
       p.weapon = 'pp7';
       p.ammo = -1;
