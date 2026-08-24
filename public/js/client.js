@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 // Build-stamped imports — bump these versions so browsers drop stale modules
-import { AGENTS, getAgent, statBar } from './roster.js?v=20260824b';
-import { MAPS, getMap, buildMapById, bindThree, PAD_SPOTS, GOLD_SPOTS } from './maps.js?v=20260824b';
-import { WEAPONS, GOLD_SHOTS, GUN_RANK, getWeapon } from './weapons.js?v=20260824b';
-import { BRAND } from './brand.js?v=20260824b';
+import { AGENTS, getAgent, statBar } from './roster.js?v=20260824c';
+import { MAPS, getMap, buildMapById, bindThree, PAD_SPOTS, GOLD_SPOTS } from './maps.js?v=20260824c';
+import { WEAPONS, GOLD_SHOTS, GUN_RANK, getWeapon } from './weapons.js?v=20260824c';
+import { BRAND } from './brand.js?v=20260824c';
 
 const PALETTE = {
   cream: 0xfff2b3,
@@ -170,17 +170,26 @@ function groundNormalize(root, targetHeight) {
 }
 
 function tintClone(root, color) {
+  const team = new THREE.Color(color);
   root.traverse((o) => {
     if (!o.isMesh || !o.material) return;
     const wasArray = Array.isArray(o.material);
-    const mats = wasArray ? o.material : [o.material];
-    const cloned = mats.map((m) => {
+    const srcMats = wasArray ? o.material : [o.material];
+    const cloned = srcMats.map((m) => {
       const c = m.clone();
-      // Strong team-color glow so agents read against any arena
-      if (c.emissive) {
-        c.emissive = new THREE.Color(color);
-        c.emissiveIntensity = 0.22;
+      // Authored toon-outline glow is the model's identity — never crush it
+      if (c.emissive && c.emissive.r + c.emissive.g + c.emissive.b > 0.05) {
+        return c;
       }
+      // Team outfit slot: the punk jacket takes the agent color (GE style)
+      if (/punkred|toonred/i.test(c.name || '') && c.color) {
+        c.color.copy(team);
+        c.emissive = team.clone().multiplyScalar(0.3);
+        return c;
+      }
+      // Remaining surfaces: gentle team wash so agents differ at a glance
+      if (c.color) c.color.lerp(team, 0.25);
+      c.emissive = team.clone().multiplyScalar(0.1);
       return c;
     });
     o.material = wasArray ? cloned : cloned[0];
