@@ -95,7 +95,7 @@ export function bindThree(T) {
   THREE = T;
 }
 
-function canvasTex(draw, w = 256, h = 256, repeat = 8) {
+function canvasTex(draw, w = 1024, h = 1024, repeat = 8) {
   const c = document.createElement('canvas');
   c.width = w;
   c.height = h;
@@ -105,6 +105,7 @@ function canvasTex(draw, w = 256, h = 256, repeat = 8) {
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   t.repeat.set(repeat, repeat);
   t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 8;
   return t;
 }
 
@@ -112,99 +113,172 @@ function texGrass() {
   return canvasTex((g, w, h) => {
     g.fillStyle = '#2d5a32';
     g.fillRect(0, 0, w, h);
-    for (let i = 0; i < 1200; i++) {
-      g.fillStyle = i % 3 ? '#3a7040' : '#245028';
-      g.fillRect(Math.random() * w, Math.random() * h, 2, 3);
+    // Mowing stripes — instant stadium identity
+    for (let i = 0; i < 8; i++) {
+      g.fillStyle = i % 2 ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.07)';
+      g.fillRect((i * w) / 8, 0, w / 8, h);
     }
-    // field lines hint
-    g.strokeStyle = 'rgba(255,255,255,0.25)';
-    g.lineWidth = 4;
-    g.strokeRect(20, 20, w - 40, h - 40);
+    const n = (w * h) / 220;
+    for (let i = 0; i < n; i++) {
+      g.fillStyle = i % 3 ? 'rgba(58,112,64,0.8)' : 'rgba(36,80,40,0.8)';
+      g.fillRect(Math.random() * w, Math.random() * h, w / 340, h / 220);
+    }
+    g.strokeStyle = 'rgba(255,255,255,0.3)';
+    g.lineWidth = w / 64;
+    g.strokeRect(w * 0.08, h * 0.08, w * 0.84, h * 0.84);
     g.beginPath();
-    g.arc(w / 2, h / 2, 40, 0, Math.PI * 2);
+    g.arc(w / 2, h / 2, w / 6.4, 0, Math.PI * 2);
     g.stroke();
-  }, 256, 256, 6);
+    g.beginPath();
+    g.moveTo(w / 2, h * 0.08);
+    g.lineTo(w / 2, h * 0.92);
+    g.stroke();
+  }, 1024, 1024, 6);
 }
 
 function texTile(a = '#d8d2c4', b = '#c4bdb0') {
   return canvasTex((g, w, h) => {
-    const s = 32;
+    const s = w / 8;
     for (let y = 0; y < h; y += s) {
       for (let x = 0; x < w; x += s) {
         g.fillStyle = (x / s + y / s) % 2 ? a : b;
         g.fillRect(x, y, s, s);
-        g.strokeStyle = 'rgba(0,0,0,0.08)';
-        g.strokeRect(x, y, s, s);
+        const j = (Math.random() - 0.5) * 0.06;
+        g.fillStyle = `rgba(255,255,255,${Math.max(0, j)})`;
+        g.fillRect(x, y, s, s);
+        g.fillStyle = `rgba(0,0,0,${Math.max(0, -j)})`;
+        g.fillRect(x, y, s, s);
+        g.strokeStyle = 'rgba(0,0,0,0.22)';
+        g.lineWidth = Math.max(2, w / 340);
+        g.strokeRect(x + 1, y + 1, s - 2, s - 2);
+        g.fillStyle = 'rgba(255,255,255,0.05)';
+        g.fillRect(x + s * 0.12, y + s * 0.1, s * 0.76, s * 0.16);
       }
     }
-  }, 256, 256, 10);
+  }, 1024, 1024, 10);
 }
 
 function texWood() {
   return canvasTex((g, w, h) => {
     g.fillStyle = '#8b5a3c';
     g.fillRect(0, 0, w, h);
-    for (let i = 0; i < 40; i++) {
-      g.strokeStyle = `rgba(60,30,15,${0.15 + Math.random() * 0.2})`;
+    const plank = h / 6;
+    for (let i = 0; i < 6; i++) {
+      g.fillStyle = i % 2 ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.05)';
+      g.fillRect(0, i * plank, w, plank);
+      g.strokeStyle = 'rgba(40,20,10,0.6)';
+      g.lineWidth = Math.max(2, w / 256);
       g.beginPath();
-      g.moveTo(0, (i / 40) * h);
-      g.bezierCurveTo(w * 0.3, i * 6, w * 0.7, i * 7, w, (i / 40) * h + 8);
+      g.moveTo(0, i * plank);
+      g.lineTo(w, i * plank);
       g.stroke();
     }
-  }, 256, 256, 4);
+    for (let i = 0; i < w / 5; i++) {
+      g.strokeStyle = `rgba(60,30,15,${0.1 + Math.random() * 0.18})`;
+      g.lineWidth = Math.max(1, w / 512);
+      g.beginPath();
+      const y0 = Math.random() * h;
+      g.moveTo(0, y0);
+      g.bezierCurveTo(
+        w * 0.3, y0 + (Math.random() - 0.5) * 30,
+        w * 0.7, y0 + (Math.random() - 0.5) * 30,
+        w, y0 + (Math.random() - 0.5) * 12
+      );
+      g.stroke();
+    }
+  }, 1024, 1024, 4);
 }
 
 function texBrick() {
   return canvasTex((g, w, h) => {
-    g.fillStyle = '#5a4036';
-    g.fillRect(0, 0, w, h);
-    const bw = 48;
-    const bh = 24;
+    g.fillStyle = '#4a352c';
+    g.fillRect(0, 0, w, h); // mortar base
+    const bw = w / 5.33;
+    const bh = bw / 2;
     for (let y = 0, row = 0; y < h; y += bh, row++) {
       const off = row % 2 ? bw / 2 : 0;
       for (let x = -bw; x < w; x += bw) {
-        g.fillStyle = `rgb(${110 + Math.random() * 30|0},${70 + Math.random() * 20|0},${55})`;
-        g.fillRect(x + off + 1, y + 1, bw - 2, bh - 2);
+        const r = 110 + Math.random() * 30;
+        const gg = 70 + Math.random() * 20;
+        g.fillStyle = `rgb(${r | 0},${gg | 0},55)`;
+        g.fillRect(x + off + w / 170, y + w / 170, bw - w / 85, bh - w / 85);
+        g.fillStyle = 'rgba(255,255,255,0.08)';
+        g.fillRect(x + off + w / 170, y + w / 170, bw - w / 85, (bh - w / 85) * 0.18);
       }
     }
-  }, 256, 256, 5);
+  }, 1024, 1024, 5);
 }
 
 function texConcrete() {
   return canvasTex((g, w, h) => {
     g.fillStyle = '#6a6e68';
     g.fillRect(0, 0, w, h);
-    for (let i = 0; i < 800; i++) {
-      const v = 90 + Math.random() * 50;
-      g.fillStyle = `rgb(${v},${v},${v - 5})`;
-      g.fillRect(Math.random() * w, Math.random() * h, 2, 2);
+    for (let i = 0; i < 24; i++) {
+      const v = Math.random() > 0.5 ? 255 : 0;
+      g.fillStyle = `rgba(${v},${v},${v},0.03)`;
+      g.beginPath();
+      g.arc(Math.random() * w, Math.random() * h, w * (0.05 + Math.random() * 0.12), 0, Math.PI * 2);
+      g.fill();
     }
-  }, 256, 256, 8);
+    const n = (w * h) / 160;
+    for (let i = 0; i < n; i++) {
+      const v = 90 + Math.random() * 50;
+      g.fillStyle = `rgba(${v | 0},${v | 0},${(v - 5) | 0},0.7)`;
+      g.fillRect(Math.random() * w, Math.random() * h, w / 340, w / 340);
+    }
+  }, 1024, 1024, 8);
 }
 
 function texMarble() {
   return canvasTex((g, w, h) => {
     g.fillStyle = '#e8e4dc';
     g.fillRect(0, 0, w, h);
-    for (let i = 0; i < 30; i++) {
-      g.strokeStyle = `rgba(120,120,120,${0.15 + Math.random() * 0.2})`;
+    for (let i = 0; i < 6; i++) {
+      g.fillStyle = `rgba(160,158,150,${0.05 + Math.random() * 0.05})`;
+      g.fillRect(0, Math.random() * h, w, h * (0.06 + Math.random() * 0.1));
+    }
+    for (let i = 0; i < w / 20; i++) {
+      g.strokeStyle = `rgba(120,120,120,${0.12 + Math.random() * 0.2})`;
+      g.lineWidth = Math.max(1, w / (300 + Math.random() * 300));
       g.beginPath();
-      g.moveTo(Math.random() * w, Math.random() * h);
-      g.bezierCurveTo(Math.random() * w, Math.random() * h, Math.random() * w, Math.random() * h, Math.random() * w, Math.random() * h);
+      let x = Math.random() * w;
+      let y = Math.random() * h;
+      g.moveTo(x, y);
+      for (let k = 0; k < 4; k++) {
+        const nx = x + (Math.random() - 0.5) * w * 0.4;
+        const ny = y + (Math.random() - 0.5) * h * 0.4;
+        g.quadraticCurveTo(x + (Math.random() - 0.5) * 80, y + (Math.random() - 0.5) * 80, nx, ny);
+        x = nx;
+        y = ny;
+      }
       g.stroke();
     }
-  }, 256, 256, 6);
+    for (let i = 0; i < 10; i++) {
+      g.fillStyle = 'rgba(255,255,255,0.06)';
+      g.fillRect(Math.random() * w, Math.random() * h, w * 0.2, w / 200);
+    }
+  }, 1024, 1024, 6);
 }
 
 function texCafe() {
   return canvasTex((g, w, h) => {
     g.fillStyle = '#3d2a22';
     g.fillRect(0, 0, w, h);
-    for (let y = 0; y < h; y += 16) {
-      g.fillStyle = y % 32 ? '#4a342c' : '#35241d';
-      g.fillRect(0, y, w, 16);
+    const row = w / 8;
+    for (let y = 0; y < h; y += row) {
+      g.fillStyle = (y / row) % 2 ? '#4a342c' : '#35241d';
+      g.fillRect(0, y, w, row);
+      for (let i = 0; i < 6; i++) {
+        g.strokeStyle = 'rgba(20,10,5,0.25)';
+        g.lineWidth = Math.max(1, w / 512);
+        const gy = y + Math.random() * row;
+        g.beginPath();
+        g.moveTo(0, gy);
+        g.bezierCurveTo(w * 0.3, gy + 6, w * 0.7, gy - 6, w, gy);
+        g.stroke();
+      }
     }
-  }, 128, 128, 12);
+  }, 512, 512, 12);
 }
 
 /**
@@ -464,7 +538,7 @@ function buildFacility(ctx) {
   const { solidBox, floorPlane, shell, cornerSpawns, lights } = api(ctx);
   const concrete = texConcrete();
   const tile = texTile('#3a4a38', '#2f3c2e');
-  lights(0x88aa88, 0x0a100c, 50, 140, [
+  lights(0x88aa88, 0x0e1510, 50, 140, [
     [0, 8, 0, 0x6baf6e, 1.2, 40],
     [-40, 6, -40, 0xfff2b3, 0.8, 32],
     [40, 6, 40, 0xfff2b3, 0.8, 32],

@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 // Build-stamped imports — bump these versions so browsers drop stale modules
-import { AGENTS, getAgent, statBar } from './roster.js?v=20260824c';
-import { MAPS, getMap, buildMapById, bindThree, PAD_SPOTS, GOLD_SPOTS } from './maps.js?v=20260824c';
-import { WEAPONS, GOLD_SHOTS, GUN_RANK, getWeapon } from './weapons.js?v=20260824c';
-import { BRAND } from './brand.js?v=20260824c';
+import { AGENTS, getAgent, statBar } from './roster.js?v=20260825a';
+import { MAPS, getMap, buildMapById, bindThree, PAD_SPOTS, GOLD_SPOTS } from './maps.js?v=20260825a';
+import { WEAPONS, GOLD_SHOTS, GUN_RANK, getWeapon } from './weapons.js?v=20260825a';
+import { BRAND } from './brand.js?v=20260825a';
 
 const PALETTE = {
   cream: 0xfff2b3,
@@ -136,6 +136,10 @@ let SPAWNS = [
 ];
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+// Supersample — 4x the pixels so it reads like a real game, not Minecraft
+renderer.setPixelRatio(Math.min((window.devicePixelRatio || 1) * 2, 3));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.15;
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
@@ -174,25 +178,76 @@ function tintClone(root, color) {
   root.traverse((o) => {
     if (!o.isMesh || !o.material) return;
     const wasArray = Array.isArray(o.material);
-    const srcMats = wasArray ? o.material : [o.material];
-    const cloned = srcMats.map((m) => {
+    const src = wasArray ? o.material : [o.material];
+    const cloned = src.map((m) => {
       const c = m.clone();
-      // Authored toon-outline glow is the model's identity — never crush it
-      if (c.emissive && c.emissive.r + c.emissive.g + c.emissive.b > 0.05) {
-        return c;
-      }
-      // Team outfit slot: the punk jacket takes the agent color (GE style)
+      // Team outfit slot — the punk jacket carries the agent color
       if (/punkred|toonred/i.test(c.name || '') && c.color) {
         c.color.copy(team);
-        c.emissive = team.clone().multiplyScalar(0.3);
+        c.emissive = team.clone().multiplyScalar(0.35);
         return c;
       }
-      // Remaining surfaces: gentle team wash so agents differ at a glance
-      if (c.color) c.color.lerp(team, 0.25);
-      c.emissive = team.clone().multiplyScalar(0.1);
+      // Gold trim stays gold
+      if (/gold/i.test(c.name || '')) return c;
+      const emLum = c.emissive ? c.emissive.r + c.emissive.g + c.emissive.b : 0;
+      if (emLum > 0.05) {
+        // Toon-shaded surfaces: the glow IS the visible color — team it hard
+        c.emissive.lerp(team, 0.78);
+        if (c.color) c.color.lerp(team, 0.3);
+        return c;
+      }
+      const lum = c.color ? c.color.r * 0.3 + c.color.g * 0.6 + c.color.b * 0.1 : 0;
+      if (lum > 0.55) {
+        // Whites/bones become the team uniform — GE outfit rule
+        c.color.lerp(team, 0.82);
+        return c;
+      }
+      // Dark/detail surfaces: keep identity, whisper of team
+      if (c.color) c.color.lerp(team, 0.18);
       return c;
     });
     o.material = wasArray ? cloned : cloned[0];
+  });
+  return root;
+}
+
+/**
+ * Measure real bounds, stand the model upright (thinnest axis = facing),
+ * normalize its largest footprint, center and ground it. No more guessing.
+ */
+function standAndSize(src, target) {
+  const obj = src.clone(true);
+  const box = new THREE.Box3().setFromObject(obj);
+  const size = new THREE.Vector3();
+  box.getSize(size);
+  if (size.y <= size.x && size.y <= size.z) obj.rotation.x = -Math.PI / 2;
+  else if (size.x <= size.y && size.x <= size.z) obj.rotation.y = Math.PI / 2;
+  const box2 = new THREE.Box3().setFromObject(obj);
+  const size2 = new THREE.Vector3();
+  box2.getSize(size2);
+  const s = target / Math.max(size2.x, size2.y, 0.001);
+  obj.scale.multiplyScalar(s);
+  const box3 = new THREE.Box3().setFromObject(obj);
+  const center = new THREE.Vector3();
+  box3.getCenter(center);
+  obj.position.x -= center.x;
+  obj.position.z -= center.z;
+  obj.position.y -= box3.min.y;
+  return obj;
+}
+
+/** Self-glow floor so prop-built agents never vanish on dark maps. */
+function popMats(root, strength = 0.3) {
+  root.traverse((o) => {
+    if (!o.isMesh || !o.material) return;
+    const mats = Array.isArray(o.material) ? o.material : [o.material];
+    for (const m of mats) {
+      if (!m.emissive) continue;
+      const lum = m.emissive.r + m.emissive.g + m.emissive.b;
+      if (lum < 0.05 && m.color) {
+        m.emissive = m.color.clone().multiplyScalar(strength);
+      }
+    }
   });
   return root;
 }
@@ -573,7 +628,8 @@ function makeAgentMesh(agentOrColor) {
     if (agent.id === 'mini' && models.mohawk) {
       // MINI MOHAWK: the mohawk gremlin head IS the agent
       const g = new THREE.Group();
-      const head = models.mohawk.clone(true);
+      const head = popMats(standAndSize(models.mohawk, 1.35), 0.35);
+      head.rotation.y = Math.PI; // face the same direction as the other agents
       head.traverse((o) => {
         if (o.isMesh) {
           o.castShadow = true;
@@ -581,24 +637,24 @@ function makeAgentMesh(agentOrColor) {
         }
       });
       g.add(head);
-      g.scale.setScalar((agent.scale || 1) * 0.85);
-      addIdentityKit(g, agent, 1.5 / ((agent.scale || 1) * 0.85));
+      g.scale.setScalar(agent.scale || 1);
+      addIdentityKit(g, agent, 1.55 * (agent.scale || 1));
       g.userData.hoverBob = true;
       return g;
     }
     if (agent.id === 'drone' && models.badge) {
-      // RAY DRONE: floating crew-badge chassis
+      // RAY DRONE: upright badge chassis hovering over its ring
       const g = new THREE.Group();
-      const disk = models.badge.clone(true);
+      const disk = popMats(standAndSize(models.badge, 1.05), 0.3);
       disk.traverse((o) => {
         if (o.isMesh) {
           o.castShadow = true;
           o.receiveShadow = true;
         }
       });
-      disk.position.y = 0.85;
+      disk.position.y = 0.92;
       g.add(disk);
-      addIdentityKit(g, agent, 1.75);
+      addIdentityKit(g, agent, 1.85 * (agent.scale || 1));
       g.scale.setScalar(agent.scale || 1);
       g.userData.hoverBob = true;
       return g;
@@ -609,26 +665,24 @@ function makeAgentMesh(agentOrColor) {
     tintClone(clone, color);
 
     if (agent.id === 'daisy' && models.daisy) {
-      // DAISY SKULL: real daisy crown from daisy.glb
-      const crown = models.daisy.clone(true);
-      crown.scale.multiplyScalar(0.32);
-      crown.position.set(0, 1.86, 0);
+      // DAISY SKULL: real daisy crown, popped so it reads on any body color
+      const crown = popMats(models.daisy.clone(true), 0.35);
+      crown.scale.multiplyScalar(0.5);
+      crown.position.set(0, 1.76, 0);
       crown.rotation.z = 0.12;
       clone.add(crown);
     }
     if (agent.id === 'boss' && models.bag) {
       // BOSS MARKER: daily delivery bag strapped to the back
-      const bag = models.bag.clone(true);
-      bag.scale.multiplyScalar(0.55);
-      bag.position.set(-0.1, 1.05, -0.45);
+      const bag = popMats(standAndSize(models.bag, 0.62), 0.22);
+      bag.position.set(-0.12, 1.02, -0.46);
       bag.rotation.y = Math.PI;
       clone.add(bag);
     }
     if (agent.id === 'hazard' && models.hazard) {
-      // AGENT HAZARD: warning-sign plate worn as a backpack
-      const plate = models.hazard.clone(true);
-      plate.scale.multiplyScalar(0.5);
-      plate.position.set(0, 1.25, -0.42);
+      // AGENT HAZARD: warning-sign plate, wider than the body so it peeks out
+      const plate = popMats(standAndSize(models.hazard, 1.15), 0.28);
+      plate.position.set(0, 1.18, -0.5);
       plate.rotation.y = Math.PI;
       clone.add(plate);
     }
@@ -2188,6 +2242,66 @@ window.SKULL_DEBUG = {
       configurable: true,
     });
     document.dispatchEvent(new Event('pointerlockchange'));
+  },
+  // Line up every agent in front of the camera for visual inspection
+  async photoMode(mapId) {
+    if (mapId && mapId !== selectedMapId) {
+      selectedMapId = mapId;
+      loadSelectedMap(mapId);
+      await new Promise((r) => setTimeout(r, 300));
+    }
+    this.unPhoto();
+    for (const [, m] of remoteMeshes) m.visible = false;
+    this._photo = [];
+    const ids = ['skullpepe', 'daisy', 'mini', 'boss', 'drone', 'hazard'];
+    ids.forEach((id, i) => {
+      const mesh = makeAgentMesh(getAgent(id));
+      mesh.position.set((i - 2.5) * 2.4, 0, -5.5);
+      scene.add(mesh);
+      this._photo.push(mesh);
+    });
+    const me =
+      offlineMode && offlineMatch && offlineMatch.roster.find((p) => p.id === myId);
+    if (me) {
+      me.x = 0;
+      me.y = EYE;
+      me.z = 0;
+      me.yaw = 0;
+      me.spawnShieldUntil = Number.MAX_SAFE_INTEGER;
+      me.hp = me.maxHp;
+      me.alive = true;
+    }
+    yaw = 0;
+    pitch = 0;
+    gunGroup.visible = false;
+    camera.position.set(0, EYE + 0.1, 0);
+    return true;
+  },
+  unPhoto() {
+    if (this._photo) {
+      for (const m of this._photo) scene.remove(m);
+      this._photo = null;
+    }
+    for (const [, m] of remoteMeshes) m.visible = true;
+    gunGroup.visible = true;
+  },
+  focusAgent(i) {
+    if (!this._photo || !this._photo[i]) return false;
+    const m = this._photo[i];
+    const me =
+      offlineMode && offlineMatch && offlineMatch.roster.find((p) => p.id === myId);
+    if (me) {
+      me.x = m.position.x;
+      me.y = EYE;
+      me.z = m.position.z + 2.1;
+      me.yaw = 0;
+    }
+    yaw = 0;
+    pitch = 0.06;
+    const lookY = i === 2 ? 0.45 : 0.85;
+    camera.position.set(m.position.x, 1.1, m.position.z + 2.1);
+    camera.lookAt(m.position.x, lookY, m.position.z);
+    return true;
   },
 };
 
