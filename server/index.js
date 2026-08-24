@@ -23,10 +23,10 @@ const MAP_DEFS = {
 
 // ===== Arsenal — keep in sync with public/js/weapons.js =====
 const WEAPONS = {
-  pp7: { name: 'PP7 RAY', dmg: 34, cd: 170, mag: -1, reloadMs: 0, spread: 0, auto: true, range: 70, oneShot: false },
-  klobber: { name: 'KLOBBER', dmg: 15, cd: 95, mag: 70, reloadMs: 1400, spread: 0.03, auto: true, range: 60, oneShot: false },
-  dd: { name: 'DD SKULL', dmg: 52, cd: 430, mag: 21, reloadMs: 1600, spread: 0.006, auto: false, range: 80, oneShot: false },
-  kf7: { name: 'KF7 SKULLETV', dmg: 26, cd: 115, mag: 90, reloadMs: 2000, spread: 0.016, auto: true, range: 75, oneShot: false },
+  pp7: { name: 'PP7 RAY', dmg: 44, cd: 260, mag: -1, reloadMs: 0, spread: 0, auto: true, range: 70, oneShot: false },
+  klobber: { name: 'KLOBBER', dmg: 24, cd: 160, mag: 70, reloadMs: 1400, spread: 0.03, auto: true, range: 60, oneShot: false },
+  dd: { name: 'DD SKULL', dmg: 72, cd: 560, mag: 21, reloadMs: 1600, spread: 0.006, auto: false, range: 80, oneShot: false },
+  kf7: { name: 'KF7 SKULLETV', dmg: 36, cd: 180, mag: 90, reloadMs: 2000, spread: 0.016, auto: true, range: 75, oneShot: false },
   gold: { name: 'GOLDEN SKULLGUN', dmg: 250, cd: 850, mag: 5, reloadMs: 0, spread: 0, auto: false, range: 99, oneShot: true },
 };
 const GOLD_SHOTS = 5;

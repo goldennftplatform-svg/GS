@@ -175,18 +175,66 @@ function tintClone(root, color) {
     const mats = wasArray ? o.material : [o.material];
     const cloned = mats.map((m) => {
       const c = m.clone();
-      if (c.emissive) c.emissive = new THREE.Color(color).multiplyScalar(0.12);
+      // Strong team-color glow so agents read against any arena
+      if (c.emissive) {
+        c.emissive = new THREE.Color(color);
+        c.emissiveIntensity = 0.22;
+      }
       return c;
     });
     o.material = wasArray ? cloned : cloned[0];
   });
-  const band = new THREE.Mesh(
-    new THREE.BoxGeometry(0.55, 0.12, 0.55),
-    new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.35 })
-  );
-  band.position.y = 1.05;
-  root.add(band);
   return root;
+}
+
+/** Overhead codename tag — canvas sprite in the agent's brand color. */
+function makeNameSprite(text, cssColor) {
+  const c = document.createElement('canvas');
+  c.width = 256;
+  c.height = 64;
+  const g = c.getContext('2d');
+  g.font = '20px "Press Start 2P", monospace';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.lineWidth = 6;
+  g.strokeStyle = '#10140f';
+  g.strokeText(text, 128, 32);
+  g.fillStyle = cssColor;
+  g.fillText(text, 128, 32);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true }));
+  spr.scale.set(1.9, 0.48, 1);
+  return spr;
+}
+
+/**
+ * Identity kit: glowing floor ring + overhead codename so every agent is
+ * readable at a glance (and each reads as its own brand color).
+ */
+function addIdentityKit(group, agent, tagY) {
+  const cssColor = agent.color || '#' + new THREE.Color(agent.tint ?? 0x6baf6e).getHexString();
+  const hex = agent.tint ?? 0x6baf6e;
+
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(0.46, 0.055, 8, 26),
+    new THREE.MeshStandardMaterial({
+      color: hex,
+      emissive: hex,
+      emissiveIntensity: 0.95,
+      roughness: 0.4,
+    })
+  );
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.09;
+  group.add(ring);
+
+  if (agent.codename) {
+    const tag = makeNameSprite(agent.codename, cssColor);
+    tag.position.y = tagY;
+    group.add(tag);
+  }
+  return group;
 }
 
 function fallbackGun() {
@@ -501,12 +549,13 @@ function makeAgentMesh(agentOrColor) {
         }
       });
       g.add(head);
-      g.scale.setScalar((agent.scale || 1) * 0.62);
+      g.scale.setScalar((agent.scale || 1) * 0.85);
+      addIdentityKit(g, agent, 1.5 / ((agent.scale || 1) * 0.85));
       g.userData.hoverBob = true;
       return g;
     }
     if (agent.id === 'drone' && models.badge) {
-      // RAY DRONE: floating crew-badge chassis with an NSES-green underglow ring
+      // RAY DRONE: floating crew-badge chassis
       const g = new THREE.Group();
       const disk = models.badge.clone(true);
       disk.traverse((o) => {
@@ -515,18 +564,9 @@ function makeAgentMesh(agentOrColor) {
           o.receiveShadow = true;
         }
       });
+      disk.position.y = 0.85;
       g.add(disk);
-      const ring = new THREE.Mesh(
-        new THREE.TorusGeometry(0.42, 0.05, 6, 20),
-        new THREE.MeshStandardMaterial({
-          color: PALETTE.green,
-          emissive: PALETTE.green,
-          emissiveIntensity: 0.9,
-        })
-      );
-      ring.rotation.x = Math.PI / 2;
-      ring.position.y = -0.62;
-      g.add(ring);
+      addIdentityKit(g, agent, 1.75);
       g.scale.setScalar(agent.scale || 1);
       g.userData.hoverBob = true;
       return g;
@@ -560,6 +600,7 @@ function makeAgentMesh(agentOrColor) {
       plate.rotation.y = Math.PI;
       clone.add(plate);
     }
+    addIdentityKit(clone, agent, 2.3 * (agent.scale || 1));
     if (agent.hover) clone.userData.hoverBob = true;
     return clone;
   }
@@ -575,6 +616,7 @@ function makeAgentMesh(agentOrColor) {
   head.position.y = 1.65;
   g.add(torso, head);
   g.scale.setScalar(agent.scale || 1);
+  addIdentityKit(g, agent, 2.3 * (agent.scale || 1));
   return g;
 }
 
@@ -1520,7 +1562,7 @@ function updateBots(dt, now) {
     } else {
       bot.sawAt = 0;
     }
-    const reacted = bot.sawAt && now - bot.sawAt > 420;
+    const reacted = bot.sawAt && now - bot.sawAt > 650;
 
     const lowHp = bot.hp < bot.maxHp * 0.35;
     // Lost sight? Drop to a cautious prowl instead of swarming your last spot
@@ -1532,7 +1574,7 @@ function updateBots(dt, now) {
     const W = getWeapon(bot.weapon);
     if (reacted && dist < W.range * 0.45) {
       const closeBonus = Math.max(0, 1 - dist / (W.range * 0.45));
-      const rate = W.auto ? 0.55 + closeBonus * 0.75 : 0.3 + closeBonus * 0.4;
+      const rate = W.auto ? 0.4 + closeBonus * 0.55 : 0.22 + closeBonus * 0.3;
       if (Math.random() < rate * dt) applyShot(bot, now);
     }
   }
