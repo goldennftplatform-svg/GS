@@ -1,9 +1,11 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { AGENTS, getAgent, statBar } from './roster.js';
-import { MAPS, getMap, buildMapById, bindThree, PAD_SPOTS, GOLD_SPOTS } from './maps.js';
-import { WEAPONS, GOLD_SHOTS, GUN_RANK, getWeapon } from './weapons.js';
-import { BRAND } from './brand.js';
+// Build-stamped imports — bump BUILD so browsers drop stale cached modules
+const BUILD = 'v20260824b';
+import { AGENTS, getAgent, statBar } from './roster.js?' + BUILD;
+import { MAPS, getMap, buildMapById, bindThree, PAD_SPOTS, GOLD_SPOTS } from './maps.js?' + BUILD;
+import { WEAPONS, GOLD_SHOTS, GUN_RANK, getWeapon } from './weapons.js?' + BUILD;
+import { BRAND } from './brand.js?' + BUILD;
 
 const PALETTE = {
   cream: 0xfff2b3,
@@ -187,47 +189,69 @@ function tintClone(root, color) {
   return root;
 }
 
-/** Overhead codename tag — canvas sprite in the agent's brand color. */
+/** Overhead codename tag — big, high-contrast, draws through walls. */
 function makeNameSprite(text, cssColor) {
   const c = document.createElement('canvas');
-  c.width = 256;
-  c.height = 64;
+  c.width = 512;
+  c.height = 128;
   const g = c.getContext('2d');
-  g.font = '20px "Press Start 2P", monospace';
+  g.font = '36px "Press Start 2P", monospace';
   g.textAlign = 'center';
   g.textBaseline = 'middle';
-  g.lineWidth = 6;
+  g.lineWidth = 10;
   g.strokeStyle = '#10140f';
-  g.strokeText(text, 128, 32);
+  g.strokeText(text, 256, 64);
   g.fillStyle = cssColor;
-  g.fillText(text, 128, 32);
+  g.fillText(text, 256, 64);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
-  const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true }));
-  spr.scale.set(1.9, 0.48, 1);
+  const spr = new THREE.Sprite(
+    new THREE.SpriteMaterial({
+      map: tex,
+      transparent: true,
+      opacity: 0.95,
+      depthTest: false,
+    })
+  );
+  spr.scale.set(3.0, 0.75, 1);
+  spr.renderOrder = 999;
   return spr;
 }
 
 /**
- * Identity kit: glowing floor ring + overhead codename so every agent is
- * readable at a glance (and each reads as its own brand color).
+ * Identity kit: glowing floor ring + team-color beacon + overhead codename.
+ * Every agent reads instantly against any arena.
  */
 function addIdentityKit(group, agent, tagY) {
   const cssColor = agent.color || '#' + new THREE.Color(agent.tint ?? 0x6baf6e).getHexString();
   const hex = agent.tint ?? 0x6baf6e;
 
   const ring = new THREE.Mesh(
-    new THREE.TorusGeometry(0.46, 0.055, 8, 26),
+    new THREE.TorusGeometry(0.55, 0.08, 8, 26),
     new THREE.MeshStandardMaterial({
       color: hex,
       emissive: hex,
-      emissiveIntensity: 0.95,
+      emissiveIntensity: 1.6,
       roughness: 0.4,
     })
   );
   ring.rotation.x = -Math.PI / 2;
   ring.position.y = 0.09;
   group.add(ring);
+
+  // Vertical beacon column so agents pop across the arena
+  const beam = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.07, 0.16, 2.4, 8, 1, true),
+    new THREE.MeshBasicMaterial({
+      color: hex,
+      transparent: true,
+      opacity: 0.32,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    })
+  );
+  beam.position.y = 1.25;
+  group.add(beam);
 
   if (agent.codename) {
     const tag = makeNameSprite(agent.codename, cssColor);
