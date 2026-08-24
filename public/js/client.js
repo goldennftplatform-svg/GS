@@ -2030,12 +2030,15 @@ function firePrimary() {
     if (!me?.alive) return false;
     finishReloadIfDue(me, now);
     triggerFresh = false;
-    return applyShot(me, now);
+    const fired = applyShot(me, now);
+    if (fired) localShots++;
+    return fired;
   }
 
   // Netplay: optimistic local VFX — server stays authoritative on damage/ammo
   triggerFresh = false;
   lastLocalShot = now;
+  localShots++;
   const aim = getAimRay();
   const origin = aim.origin;
   let dir = aim.dir.clone();
@@ -2090,6 +2093,10 @@ document.addEventListener('contextmenu', (e) => {
 
 document.addEventListener('pointerlockchange', () => {
   pointerLocked = document.pointerLockElement === canvas;
+  if (!pointerLocked) {
+    keys.shootHeld = false;
+    triggerFresh = false;
+  }
 });
 
 addEventListener('mousemove', (e) => {
@@ -2102,8 +2109,20 @@ addEventListener('mousemove', (e) => {
   yaw -= e.movementX * sens;
   pitch -= e.movementY * sens;
   pitch = Math.max(-1.4, Math.min(1.4, pitch));
-  // DO NOT fire here — that was the glitch storm
-  if (e.buttons & 1) keys.shootHeld = true;
+  // Two-way button sync from the OS state — self-heals swallowed pointerups
+  // (one-way asserts here were latching the trigger ON forever)
+  const held = !!(e.buttons & 1);
+  if (held !== keys.shootHeld) {
+    keys.shootHeld = held;
+    if (held) triggerFresh = true;
+  }
+});
+
+// Stuck-fire killswitches: losing focus or pointer lock always drops the trigger
+addEventListener('blur', () => {
+  keys.shootHeld = false;
+  keys.ads = false;
+  triggerFresh = false;
 });
 
 addEventListener('resize', () => {
@@ -2116,6 +2135,61 @@ loadSelectedMap(selectedMapId);
 fallbackGun();
 gunGroup.add(muzzleFlash);
 loadGameAssets();
+
+// ---- Headless smoke-test hooks (inert during normal play) ----
+let localShots = 0;
+window.SKULL_DEBUG = {
+  async startSolo(agentId, mapId) {
+    if (agentId) selectedAgentId = agentId;
+    if (mapId) selectedMapId = mapId;
+    armJoin('solo');
+    await new Promise((r) => setTimeout(r, 400));
+    return true;
+  },
+  give(id) {
+    const me =
+      offlineMode && offlineMatch && offlineMatch.roster.find((p) => p.id === myId);
+    if (!me) return false;
+    me.weapon = id;
+    const W = getWeapon(id);
+    me.ammo = W.mag >= 0 ? W.mag : -1;
+    me.reloadingUntil = 0;
+    mountViewmodel(id);
+    return true;
+  },
+  state() {
+    return {
+      shots: localShots,
+      shootHeld: keys.shootHeld,
+      ads: keys.ads,
+      locked: pointerLocked,
+      fov: camera.fov,
+      weapon: currentWeaponId(),
+      offline: !!offlineMode,
+      alive: localAlive,
+    };
+  },
+  resetShots() {
+    localShots = 0;
+  },
+  simulateUnlock() {
+    Object.defineProperty(document, 'pointerLockElement', {
+      value: null,
+      configurable: true,
+    });
+    document.dispatchEvent(new Event('pointerlockchange'));
+  },
+  forceLock(v) {
+    pointerLocked = v;
+  },
+  simulateLock() {
+    Object.defineProperty(document, 'pointerLockElement', {
+      value: document.querySelector('canvas'),
+      configurable: true,
+    });
+    document.dispatchEvent(new Event('pointerlockchange'));
+  },
+};
 
 const clock = new THREE.Clock();
 function tick() {
