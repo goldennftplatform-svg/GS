@@ -1630,6 +1630,7 @@ function applyShot(shooter, now) {
     flashEntityById(best.id);
     spawnImpact(origin.x + dir.x * bestT, origin.y + dir.y * bestT, origin.z + dir.z * bestT, true);
     if (shooter.id === myId) {
+      localHits++;
       els.hitMarker.classList.add('show');
       setTimeout(() => els.hitMarker.classList.remove('show'), 140);
     }
@@ -2360,6 +2361,7 @@ loadGameAssets();
 
 // ---- Headless smoke-test hooks (inert during normal play) ----
 let localShots = 0;
+let localHits = 0;
 window.SKULL_DEBUG = {
   async startSolo(agentId, mapId) {
     if (agentId) selectedAgentId = agentId;
@@ -2382,6 +2384,7 @@ window.SKULL_DEBUG = {
   state() {
     return {
       shots: localShots,
+      hits: localHits,
       shootHeld: keys.shootHeld,
       ads: keys.ads,
       locked: pointerLocked,
@@ -2391,8 +2394,39 @@ window.SKULL_DEBUG = {
       alive: localAlive,
     };
   },
+  stats() {
+    if (!offlineMode || !offlineMatch) return null;
+    const me = offlineMatch.roster.find((p) => p.id === myId);
+    return {
+      mode: offlineMatch.mode || 'dm',
+      ended: offlineMatch.ended,
+      me: me
+        ? {
+            k: me.kills,
+            d: me.deaths,
+            hp: Math.round(me.hp),
+            alive: me.alive,
+            lives: me.lives,
+            weapon: me.weapon,
+            armor: me.armor || 0,
+          }
+        : null,
+      bots: offlineMatch.roster
+        .filter((p) => p.bot)
+        .map((b) => ({ n: b.name, k: b.kills, d: b.deaths, alive: b.alive })),
+      feed: offlineMatch.killFeed.slice(-6).map((f) => f.text),
+    };
+  },
+  setMode(m) {
+    selectedMode = m === 'l2t' ? 'l2t' : 'dm';
+  },
+  aim(dx, dy) {
+    yaw -= dx * 0.0022;
+    pitch = THREE.MathUtils.clamp(pitch - (dy || 0) * 0.0016, -1.2, 1.2);
+  },
   resetShots() {
     localShots = 0;
+    localHits = 0;
   },
   simulateUnlock() {
     Object.defineProperty(document, 'pointerLockElement', {
