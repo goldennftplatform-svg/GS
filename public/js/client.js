@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 // Build-stamped imports — bump these versions so browsers drop stale modules
-import { AGENTS, getAgent, statBar } from './roster.js?v=20260825a';
-import { MAPS, getMap, buildMapById, bindThree, PAD_SPOTS, GOLD_SPOTS } from './maps.js?v=20260825a';
-import { WEAPONS, GOLD_SHOTS, GUN_RANK, getWeapon } from './weapons.js?v=20260825a';
-import { BRAND } from './brand.js?v=20260825a';
+import { AGENTS, getAgent, statBar } from './roster.js?v=20260825b';
+import { MAPS, getMap, buildMapById, bindThree, PAD_SPOTS, GOLD_SPOTS } from './maps.js?v=20260825b';
+import { WEAPONS, GOLD_SHOTS, GUN_RANK, getWeapon } from './weapons.js?v=20260825b';
+import { BRAND } from './brand.js?v=20260825b';
 
 const PALETTE = {
   cream: 0xfff2b3,
@@ -91,6 +91,8 @@ const els = {
   hitMarker: document.getElementById('hitMarker'),
   damage: document.getElementById('damageVignette'),
   centerMsg: document.getElementById('centerMsg'),
+  skullPop: document.getElementById('skullPop'),
+  dmgDir: document.getElementById('dmgDir'),
   standings: document.getElementById('standings'),
   overlayTitle: document.getElementById('overlayTitle'),
   overlayHint: document.querySelector('#overlay .hint'),
@@ -100,6 +102,7 @@ const els = {
 
 let selectedAgentId = localStorage.getItem('skullbond-agent') || 'skullpepe';
 let selectedMapId = localStorage.getItem('skullbond-map') || 'stadium';
+let selectedMode = localStorage.getItem('skullbond-mode') || 'dm';
 
 const keys = {
   f: false,
@@ -152,6 +155,35 @@ scene.add(world);
 
 const camera = new THREE.PerspectiveCamera(74, innerWidth / innerHeight, 0.05, 260);
 camera.position.set(0, EYE, 8);
+
+// Dusk sky dome — no more void-black cheapness
+const skyCv = document.createElement('canvas');
+skyCv.width = 16;
+skyCv.height = 256;
+{
+  const sg = skyCv.getContext('2d');
+  const grad = sg.createLinearGradient(0, 0, 0, 256);
+  grad.addColorStop(0, '#04060a');
+  grad.addColorStop(0.52, '#0a1410');
+  grad.addColorStop(0.72, '#1c2f20');
+  grad.addColorStop(0.8, '#2c4227');
+  grad.addColorStop(1, '#141d12');
+  sg.fillStyle = grad;
+  sg.fillRect(0, 0, 16, 256);
+}
+const skyTex = new THREE.CanvasTexture(skyCv);
+skyTex.colorSpace = THREE.SRGBColorSpace;
+const skyDome = new THREE.Mesh(
+  new THREE.SphereGeometry(230, 24, 16),
+  new THREE.MeshBasicMaterial({
+    map: skyTex,
+    side: THREE.BackSide,
+    fog: false,
+    depthWrite: false,
+  })
+);
+skyDome.renderOrder = -10;
+scene.add(skyDome);
 
 const gunGroup = new THREE.Group();
 camera.add(gunGroup);
@@ -769,6 +801,25 @@ function decorateMapProps() {
     }
   }
 
+  if (selectedMapId === 'stadium' && models.crate) {
+    // Floodlight towers on the horizon — silhouette + glowing heads
+    const poleMat = new THREE.MeshStandardMaterial({ color: 0x1a1f1a, roughness: 0.9 });
+    const lampMat = new THREE.MeshStandardMaterial({
+      color: 0xfff2b3,
+      emissive: 0xfff2b3,
+      emissiveIntensity: 1.5,
+    });
+    for (const [x, z] of [[-52, -52], [52, -52], [-52, 52], [52, 52]]) {
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.75, 18, 6), poleMat);
+      pole.position.set(x, 9, z);
+      world.add(pole);
+      const head = new THREE.Mesh(new THREE.BoxGeometry(4.4, 1.9, 0.9), lampMat);
+      head.position.set(x, 18.6, z);
+      head.lookAt(0, 12, 0);
+      world.add(head);
+    }
+  }
+
   if (selectedMapId === 'facility') {
     for (const [x, z] of [
       [-36, 36],
@@ -1059,11 +1110,35 @@ function pad(n, w = 6) {
   return String(Math.max(0, n | 0)).padStart(w, '0');
 }
 
-function showCenter(text, ms = 1600) {
+function showCenter(text, ms = 1600, big = false) {
   els.centerMsg.textContent = text;
+  els.centerMsg.classList.toggle('big', !!big);
   els.centerMsg.classList.add('show');
   clearTimeout(showCenter._t);
   showCenter._t = setTimeout(() => els.centerMsg.classList.remove('show'), ms);
+}
+
+function showSkullPop(name) {
+  if (!els.skullPop) return;
+  els.skullPop.textContent = `☠ ${name}`;
+  els.skullPop.classList.remove('show');
+  void els.skullPop.offsetWidth; // restart animation
+  els.skullPop.classList.add('show');
+}
+
+/** Red wedge around the crosshair pointing at whoever shot you. */
+function showDmgDir(fromX, fromZ) {
+  if (!els.dmgDir) return;
+  const me = offlineMode && offlineMatch
+    ? offlineMatch.roster.find((p) => p.id === myId)
+    : players.get(myId);
+  if (!me) return;
+  const bearing = Math.atan2(fromX - me.x, -(fromZ - me.z));
+  const rel = bearing - yaw;
+  els.dmgDir.style.transform = `translate(-50%, -50%) rotate(${rel}rad)`;
+  els.dmgDir.classList.add('show');
+  clearTimeout(showDmgDir._t);
+  showDmgDir._t = setTimeout(() => els.dmgDir.classList.remove('show'), 650);
 }
 
 function ensureAudio() {
@@ -1129,6 +1204,29 @@ function playGoldSting() {
   gunVoice('triangle', 660, 660, 0.14, 0.1);
   gunVoice('triangle', 880, 880, 0.16, 0.1, 0.13);
   gunVoice('triangle', 1320, 1320, 0.3, 0.12, 0.27);
+}
+
+/** Kill/streak/death/win jingles — the fun layer. */
+function playSting(kind) {
+  ensureAudio();
+  if (!audioCtx) return;
+  if (kind === 'kill') {
+    gunVoice('triangle', 520, 520, 0.09, 0.12);
+    gunVoice('triangle', 780, 780, 0.15, 0.12, 0.09);
+  } else if (kind === 'streak') {
+    gunVoice('square', 523, 523, 0.08, 0.08);
+    gunVoice('square', 659, 659, 0.08, 0.08, 0.08);
+    gunVoice('square', 784, 784, 0.08, 0.08, 0.16);
+    gunVoice('triangle', 1046, 1046, 0.24, 0.11, 0.24);
+  } else if (kind === 'death') {
+    gunVoice('sawtooth', 220, 40, 0.5, 0.13);
+    gunVoice('square', 110, 30, 0.4, 0.07, 0.05);
+  } else if (kind === 'win') {
+    gunVoice('triangle', 523, 523, 0.12, 0.11);
+    gunVoice('triangle', 659, 659, 0.12, 0.11, 0.12);
+    gunVoice('triangle', 784, 784, 0.12, 0.11, 0.24);
+    gunVoice('triangle', 1046, 1046, 0.4, 0.13, 0.36);
+  }
 }
 
 function flashMuzzle() {
@@ -1427,7 +1525,12 @@ function startOffline(name) {
     killFeed: [],
     endsAt: Date.now() + 180000,
     ended: false,
+    mode: selectedMode,
   };
+  if (selectedMode === 'l2t') {
+    me.lives = 2;
+    for (const b of bots) b.lives = 2;
+  }
   matchStartedAt = Date.now();
   yaw = me.yaw;
   pitch = 0;
@@ -1447,6 +1550,13 @@ function publishOfflineHud() {
     timeLeft: Math.max(0, Math.ceil((offlineMatch.endsAt - Date.now()) / 1000)),
     maxPlayers: 4,
   });
+  if (agentTag && offlineMatch.mode === 'l2t') {
+    const me2 = offlineMatch.roster.find((p) => p.id === myId);
+    if (me2) {
+      const base = agentTag.textContent.replace(/(?: ☠)*$/, '');
+      agentTag.textContent = base + ' ☠'.repeat(Math.max(0, me2.lives || 0));
+    }
+  }
   syncRemotes(offlineMatch.roster);
 }
 
@@ -1528,7 +1638,10 @@ function applyShot(shooter, now) {
       best.alive = false;
       best.deaths += 1;
       best.lives = Math.max(0, best.lives - 1);
-      best.respawnAt = now + 4500;
+      // LIVE & LET DIE: no respawn once you're out of skulls
+      if (offlineMatch.mode !== 'l2t' || best.lives > 0) {
+        best.respawnAt = now + 4500;
+      }
       shooter.kills += 1;
       shooter.tokens += 5;
       const combo = now - (shooter.lastKillAt || 0) < 4000 ? (shooter.streak || 1) + 1 : 1;
@@ -1538,7 +1651,25 @@ function applyShot(shooter, now) {
       const tag = STREAK_TEXT[combo] || (combo >= 5 ? 'RAMPAGE' : '');
       if (tag) text += ` · ${tag}!`;
       pushFeed(text);
-      showCenter(text, 900);
+      if (shooter.id === myId) {
+        playSting('kill');
+        showSkullPop(best.name);
+        if (tag) {
+          showCenter(`${tag}!`, 1400, true);
+          playSting('streak');
+        } else {
+          showCenter(text, 900);
+        }
+      } else {
+        showCenter(text, 900);
+      }
+      if (best.id === myId) {
+        playSting('death');
+        if (els.damage) {
+          els.damage.classList.add('show');
+          setTimeout(() => els.damage.classList.remove('show'), 450);
+        }
+      }
     }
   } else if (tWall < W.range) {
     spawnImpact(
@@ -1725,6 +1856,16 @@ function offlineTick(dt) {
   }
 
   localAlive = me.alive;
+  if (offlineMatch.mode === 'l2t' && !offlineMatch.ended) {
+    const aliveCount = offlineMatch.roster.filter((p) => p.alive).length;
+    if (aliveCount <= 1) {
+      offlineMatch.ended = true;
+      const winner = offlineMatch.roster.find((p) => p.alive);
+      if (winner && winner.id === myId) playSting('win');
+      endMatch([...offlineMatch.roster].sort((a, b) => b.kills - a.kills || a.deaths - b.deaths));
+      return;
+    }
+  }
   if (now >= offlineMatch.endsAt) {
     offlineMatch.ended = true;
     endMatch([...offlineMatch.roster].sort((a, b) => b.kills - a.kills || a.deaths - b.deaths));
@@ -1870,6 +2011,14 @@ function connect(name) {
     }
     if (msg.type === 'hit') {
       flashEntityById(msg.target);
+      if (msg.target === myId) {
+        const from = players.get(msg.by);
+        if (from) showDmgDir(from.x, from.z);
+        if (els.damage) {
+          els.damage.classList.add('show');
+          setTimeout(() => els.damage.classList.remove('show'), 350);
+        }
+      }
       return;
     }
     if (msg.type === 'pickup') {
@@ -1883,6 +2032,13 @@ function connect(name) {
       return;
     }
     if (msg.type === 'kill') {
+      if (msg.killer === myId) {
+        playSting('kill');
+        const v = players.get(msg.victim);
+        showSkullPop(v ? v.name : 'TARGET');
+      } else if (msg.victim === myId) {
+        playSting('death');
+      }
       showCenter(msg.text, 1200);
       return;
     }
@@ -2011,7 +2167,19 @@ backBoot?.addEventListener('click', () => {
 });
 
 joinBtn.addEventListener('click', () => armJoin('net'));
-soloBtn.addEventListener('click', () => armJoin('solo'));
+  soloBtn.addEventListener('click', () => armJoin('solo'));
+  const modeBtn = document.getElementById('modeBtn');
+  if (modeBtn) {
+    const modeLabel = () =>
+      selectedMode === 'l2t' ? 'MODE: LIVE & LET DIE' : 'MODE: DEATHMATCH';
+    modeBtn.textContent = modeLabel();
+    modeBtn.addEventListener('click', () => {
+      selectedMode = selectedMode === 'dm' ? 'l2t' : 'dm';
+      localStorage.setItem('skullbond-mode', selectedMode);
+      modeBtn.textContent = modeLabel();
+      playClick();
+    });
+  }
 nameInput.value = localStorage.getItem('skullbond-name') || '';
 nameInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {

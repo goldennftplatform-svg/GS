@@ -712,3 +712,52 @@ html, body {
   .dossier-art { height: 140px; }
   #radar { width: 120px; height: 120px; bottom: 4.8rem; }
 }
+
+/* ---- Kill feedback + damage direction + mode toggle ---- */
+#skullPop {
+  position: absolute;
+  left: 50%;
+  top: 38%;
+  transform: translate(-50%, -50%) scale(0.6);
+  font-family: "Press Start 2P", monospace;
+  font-size: 20px;
+  color: var(--cream);
+  text-shadow: 3px 3px 0 var(--red), 0 0 18px rgba(0,0,0,0.85);
+  opacity: 0;
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 30;
+}
+#skullPop.show { animation: skullpop 0.95s ease-out forwards; }
+@keyframes skullpop {
+  0%   { opacity: 0; transform: translate(-50%,-50%) scale(0.5) rotate(-6deg); }
+  16%  { opacity: 1; transform: translate(-50%,-50%) scale(1.18) rotate(2deg); }
+  70%  { opacity: 1; transform: translate(-50%,-50%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%,-64%) scale(1); }
+}
+
+#dmgDir {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 25;
+  transition: opacity 0.25s;
+}
+#dmgDir::before {
+  content: '';
+  position: absolute;
+  left: -16px;
+  top: -88px;
+  border-left: 16px solid transparent;
+  border-right: 16px solid transparent;
+  border-bottom: 22px solid var(--red);
+  filter: drop-shadow(0 0 6px rgba(229,57,45,0.85));
+}
+#dmgDir.show { opacity: 0.95; }
+
+#modeBtn { font-size: 10px; padding: 0.7rem 1rem; }
+#centerMsg.big { font-size: 18px; color: var(--red); text-shadow: 2px 2px 0 #000, 0 0 14px rgba(229,57,45,0.6); }
