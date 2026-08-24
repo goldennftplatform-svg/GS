@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 // Build-stamped imports — bump these versions so browsers drop stale modules
-import { AGENTS, getAgent, statBar } from './roster.js?v=20260825b';
-import { MAPS, getMap, buildMapById, bindThree, PAD_SPOTS, GOLD_SPOTS } from './maps.js?v=20260825b';
-import { WEAPONS, GOLD_SHOTS, GUN_RANK, getWeapon } from './weapons.js?v=20260825b';
-import { BRAND } from './brand.js?v=20260825b';
+import { AGENTS, getAgent, statBar } from './roster.js?v=20260825c';
+import { MAPS, getMap, buildMapById, bindThree, PAD_SPOTS, GOLD_SPOTS } from './maps.js?v=20260825c';
+import { WEAPONS, GOLD_SHOTS, GUN_RANK, getWeapon } from './weapons.js?v=20260825c';
+import { BRAND } from './brand.js?v=20260825c';
 
 const PALETTE = {
   cream: 0xfff2b3,
@@ -880,6 +880,20 @@ function refreshPadMeshes() {
     world.add(mesh);
     animatedProps.push(mesh);
     pad.mesh = mesh;
+    // Tall beacon so pads are findable across the arena
+    const beam = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.05, 0.13, 3.4, 6, 1, true),
+      new THREE.MeshBasicMaterial({
+        color: pad.kind === 'armor' ? 0x7fa8ff : 0xfff2b3,
+        transparent: true,
+        opacity: 0.38,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      })
+    );
+    beam.position.set(pad.x, 1.9, pad.z);
+    world.add(beam);
+    pad.beam = beam;
   }
   if (goldPad && !goldPad.mesh) {
     const mesh = make('gun', 'gold');
@@ -893,6 +907,20 @@ function refreshPadMeshes() {
       goldPad.mesh = mesh;
       mesh.visible = false;
     }
+    const gbeam = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.06, 0.16, 4.2, 6, 1, true),
+      new THREE.MeshBasicMaterial({
+        color: 0xffd700,
+        transparent: true,
+        opacity: 0.5,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      })
+    );
+    gbeam.position.set(goldPad.x, 2.3, goldPad.z);
+    gbeam.visible = false;
+    world.add(gbeam);
+    goldPad.beam = gbeam;
   }
 }
 
@@ -902,12 +930,14 @@ function resetPads(now = Date.now()) {
     pad.active = true;
     pad.respawnAt = 0;
     if (pad.mesh) pad.mesh.visible = true;
+    if (pad.beam) pad.beam.visible = true;
   }
   if (goldPad) {
     goldPad.spawned = false;
     goldPad.active = false;
     goldPad.respawnAt = 0;
     if (goldPad.mesh) goldPad.mesh.visible = false;
+    if (goldPad.beam) goldPad.beam.visible = false;
   }
 }
 
@@ -936,6 +966,7 @@ function tickPads(now) {
     if (!pad.active && now >= pad.respawnAt) {
       pad.active = true;
       if (pad.mesh) pad.mesh.visible = true;
+      if (pad.beam) pad.beam.visible = true;
     }
   }
   if (goldPad) {
@@ -943,11 +974,13 @@ function tickPads(now) {
       goldPad.spawned = true;
       goldPad.active = true;
       if (goldPad.mesh) goldPad.mesh.visible = true;
+      if (goldPad.beam) goldPad.beam.visible = true;
       showCenter('THE GOLDEN SKULLGUN IS LIVE', 2000);
       playGoldSting();
     } else if (goldPad.spawned && !goldPad.active && now >= goldPad.respawnAt) {
       goldPad.active = true;
       if (goldPad.mesh) goldPad.mesh.visible = true;
+      if (goldPad.beam) goldPad.beam.visible = true;
       showCenter('THE GOLDEN SKULLGUN RETURNS', 1600);
       playGoldSting();
     }
@@ -962,6 +995,7 @@ function tickPads(now) {
         pad.active = false;
         pad.respawnAt = now + PAD_RESPAWN_MS;
         if (pad.mesh) pad.mesh.visible = false;
+        if (pad.beam) pad.beam.visible = false;
       }
     }
     if (goldPad && goldPad.active && Math.hypot(e.x - goldPad.x, e.z - goldPad.z) <= PAD_RADIUS) {
@@ -969,6 +1003,7 @@ function tickPads(now) {
         goldPad.active = false;
         goldPad.respawnAt = now + GOLD_RESPAWN_MS;
         if (goldPad.mesh) goldPad.mesh.visible = false;
+        if (goldPad.beam) goldPad.beam.visible = false;
       }
     }
   }
@@ -1473,7 +1508,7 @@ function pushFeed(text) {
 }
 
 function resetOfflineMatch() {
-  offlineMatch.endsAt = Date.now() + 180000;
+  offlineMatch.endsAt = Date.now() + (offlineMatch.mode === 'l2t' ? 120000 : 180000);
   offlineMatch.killFeed = [];
   offlineMatch.ended = false;
   for (const p of offlineMatch.roster) {
@@ -1523,7 +1558,8 @@ function startOffline(name) {
   offlineMatch = {
     roster: [me, ...bots],
     killFeed: [],
-    endsAt: Date.now() + 180000,
+    // LIVE & LET DIE resolves fast — a long clock kills the tension
+    endsAt: Date.now() + (selectedMode === 'l2t' ? 120000 : 180000),
     ended: false,
     mode: selectedMode,
   };
@@ -1601,6 +1637,27 @@ function applyShot(shooter, now) {
     dir.normalize();
   }
 
+  // Hip-fire magnetism — GE shipped with aim assist, mouse gets a soft cone
+  if (shooter.id === myId) {
+    const assist = adsBlend > 0.5 ? 0.18 : 0.5;
+    let snap = null;
+    let bestDot = Math.cos(0.085); // ~5 degree cone
+    const to = new THREE.Vector3();
+    for (const t of offlineMatch.roster) {
+      if (t.id === myId || !t.alive) continue;
+      if ((t.spawnShieldUntil || 0) > now) continue;
+      to.set(t.x - origin.x, t.y - 0.25 - origin.y, t.z - origin.z);
+      if (to.length() > W.range) continue;
+      to.normalize();
+      const d = to.dot(dir);
+      if (d > bestDot) {
+        bestDot = d;
+        snap = to.clone();
+      }
+    }
+    if (snap) dir.lerp(snap, assist).normalize();
+  }
+
   const tWall = castWalls(origin.x, origin.y, origin.z, dir.x, dir.y, dir.z, W.range);
   spawnTracer(origin, dir, Math.min(tWall, W.range), W.tracer);
   spawnBolt(origin, dir, shooter.id, W.boltColor, W.boltSize);
@@ -1610,6 +1667,7 @@ function applyShot(shooter, now) {
   let bestT = Math.min(tWall, W.range);
   const tgt = new THREE.Vector3();
   const closest = new THREE.Vector3();
+  const hitR = adsBlend > 0.5 ? 1.15 : 1.45; // generous hips when not zoomed
   for (const target of offlineMatch.roster) {
     if (target.id === shooter.id || !target.alive) continue;
     // Spawn protection — freshly dropped agents can't be insta-plasted
@@ -1618,7 +1676,7 @@ function applyShot(shooter, now) {
     const t = closest.copy(tgt).sub(origin).dot(dir);
     if (t < 0.5 || t > bestT) continue;
     closest.copy(origin).addScaledVector(dir, t);
-    if (closest.distanceTo(tgt) < 1.2) {
+    if (closest.distanceTo(tgt) < hitR) {
       bestT = t;
       best = target;
     }
@@ -1759,32 +1817,41 @@ function moveEntity(p, forward, strafe, sprint, wantJump, dt) {
 }
 
 function updateBots(dt, now) {
-  const me = offlineMatch.roster.find((p) => p.id === myId);
   for (const bot of offlineMatch.roster.filter((p) => p.bot)) {
     if (!bot.alive) continue;
     finishReloadIfDue(bot, now);
-    const dx = me.x - bot.x;
-    const dz = me.z - bot.z;
-    const dist = Math.hypot(dx, dz) || 0.001;
-    const nx = dx / dist;
-    const nz = dz / dist;
+    // Target the nearest living agent — bots brawl each other too
+    let target = null;
+    let dist = Infinity;
+    for (const t of offlineMatch.roster) {
+      if (t.id === bot.id || !t.alive) continue;
+      const d = Math.hypot(t.x - bot.x, t.z - bot.z);
+      if (d < dist) {
+        dist = d;
+        target = t;
+      }
+    }
+    if (!target) continue;
+    dist = dist || 0.001;
+    const dx = (target.x - bot.x) / dist;
+    const dz = (target.z - bot.z) / dist;
     bot.yaw = Math.atan2(dx, -dz) + Math.sin(now * 0.0015 + bot.spawnIndex) * 0.15;
-    bot.pitch = THREE.MathUtils.clamp((me.y - bot.y) * 0.02, -0.4, 0.4);
+    bot.pitch = THREE.MathUtils.clamp((target.y - bot.y) * 0.02, -0.4, 0.4);
 
     // Line-of-sight gate — no more shooting through walls
-    const losT = castWalls(bot.x, bot.y, bot.z, nx, 0, nz, dist);
-    const visible = losT >= dist - 0.6 && Math.abs(me.y - bot.y) < 3;
+    const losT = castWalls(bot.x, bot.y, bot.z, dx, 0, dz, dist);
+    const visible = losT >= dist - 0.6 && Math.abs(target.y - bot.y) < 3;
     // Reaction memory: bots need sustained sight before they open fire
     if (visible) {
       if (!bot.sawAt) bot.sawAt = now;
     } else {
       bot.sawAt = 0;
     }
-    const reacted = bot.sawAt && now - bot.sawAt > 650;
+    const reacted = bot.sawAt && now - bot.sawAt > 550;
 
     const lowHp = bot.hp < bot.maxHp * 0.35;
-    // Lost sight? Drop to a cautious prowl instead of swarming your last spot
-    let forward = !visible ? 0.25 : visible && lowHp ? 1 : -1;
+    // Lost sight? Drop to a cautious prowl instead of swarming the last spot
+    let forward = !visible ? 0.25 : lowHp ? 1 : -1;
     let strafe = Math.sin(now * 0.0018 + bot.spawnIndex * 2.1) * (visible ? 1 : 0.2);
     if (dist > 24) strafe *= 0.35;
     moveEntity(bot, forward, strafe, dist > 18 && !lowHp, false, dt);
@@ -1792,7 +1859,7 @@ function updateBots(dt, now) {
     const W = getWeapon(bot.weapon);
     if (reacted && dist < W.range * 0.45) {
       const closeBonus = Math.max(0, 1 - dist / (W.range * 0.45));
-      const rate = W.auto ? 0.4 + closeBonus * 0.55 : 0.22 + closeBonus * 0.3;
+      const rate = W.auto ? 0.6 + closeBonus * 0.7 : 0.34 + closeBonus * 0.4;
       if (Math.random() < rate * dt) applyShot(bot, now);
     }
   }
@@ -1859,9 +1926,10 @@ function offlineTick(dt) {
   localAlive = me.alive;
   if (offlineMatch.mode === 'l2t' && !offlineMatch.ended) {
     const aliveCount = offlineMatch.roster.filter((p) => p.alive).length;
-    if (aliveCount <= 1) {
+    const meOut = !me.alive && (me.lives || 0) <= 0;
+    if (aliveCount <= 1 || meOut) {
       offlineMatch.ended = true;
-      const winner = offlineMatch.roster.find((p) => p.alive);
+      const winner = meOut ? null : offlineMatch.roster.find((p) => p.alive);
       if (winner && winner.id === myId) playSting('win');
       endMatch([...offlineMatch.roster].sort((a, b) => b.kills - a.kills || a.deaths - b.deaths));
       return;
@@ -2075,8 +2143,10 @@ function statusMsg(el, text) {
 
 function armJoin(mode) {
   const mine = getAgent(selectedAgentId);
-  const name = (nameInput.value || localStorage.getItem('skullbond-name') || mine.name).trim();
-  localStorage.setItem('skullbond-name', name);
+  const typed = (nameInput.value || '').trim();
+  // Only a typed name persists — agent defaults never pollute storage
+  const name = (typed || localStorage.getItem('skullbond-name') || mine.name).trim();
+  if (typed) localStorage.setItem('skullbond-name', typed);
   localStorage.setItem('skullbond-agent', selectedAgentId);
   joinBtn.disabled = true;
   soloBtn.disabled = true;
@@ -2413,9 +2483,31 @@ window.SKULL_DEBUG = {
         : null,
       bots: offlineMatch.roster
         .filter((p) => p.bot)
-        .map((b) => ({ n: b.name, k: b.kills, d: b.deaths, alive: b.alive })),
+        .map((b) => ({ n: b.name, k: b.kills, d: b.deaths, alive: b.alive, x: b.x, z: b.z })),
       feed: offlineMatch.killFeed.slice(-6).map((f) => f.text),
     };
+  },
+  aimAt(x, z) {
+    const me = offlineMode && offlineMatch && offlineMatch.roster.find((p) => p.id === myId);
+    if (!me) return false;
+    // Camera forward is (-sin yaw, -cos yaw) — solve for the bearing that
+    // points it at (x, z)
+    yaw = Math.atan2(-(x - me.x), -(z - me.z));
+    pitch = 0;
+    return true;
+  },
+  placeBot(i, x, z) {
+    if (!offlineMode || !offlineMatch) return false;
+    const bot = offlineMatch.roster.filter((p) => p.bot)[i];
+    if (!bot) return false;
+    bot.x = x;
+    bot.z = z;
+    bot.y = EYE;
+    return true;
+  },
+  mePos() {
+    const me = offlineMode && offlineMatch && offlineMatch.roster.find((p) => p.id === myId);
+    return me ? { x: me.x, z: me.z, yaw } : null;
   },
   setMode(m) {
     selectedMode = m === 'l2t' ? 'l2t' : 'dm';

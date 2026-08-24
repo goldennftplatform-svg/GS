@@ -146,6 +146,29 @@ for (let m = 0; m < 10; m++) {
       if (st.me.armor > 0) rec.armorGot = true;
       if (st.feed.length) rec.feed = st.feed;
     }
+
+    // Deterministic aim-assist probe at ~20s: TRACK a bot (re-aim every shot
+    // like a human would) with tiny jitter, fire 12 — measures hip-fire feel
+    if (el > 20000 && rec.aimedAcc === undefined && st && st.me && st.me.alive) {
+      const bot = (st.bots || []).find((b) => b.alive);
+      if (bot) {
+        await releaseAll();
+        await page.evaluate(() => SKULL_DEBUG.resetShots());
+        for (let s = 0; s < 12; s++) {
+          const cur = await page.evaluate(() => SKULL_DEBUG.stats());
+          const live = (cur ? cur.bots : []).find((b) => b.alive) || bot;
+          await page.evaluate((x, z) => SKULL_DEBUG.aimAt(x, z), live.x, live.z);
+          await page.evaluate(() => SKULL_DEBUG.aim((Math.random() - 0.5) * 9, (Math.random() - 0.5) * 5));
+          await page.evaluate(() => document.querySelector('canvas').dispatchEvent(new PointerEvent('pointerdown', { button: 0, buttons: 1, bubbles: true })));
+          await sleep(90);
+          await page.evaluate(() => document.querySelector('canvas').dispatchEvent(new PointerEvent('pointerup', { button: 0, buttons: 0, bubbles: true })));
+          await sleep(300);
+        }
+        const after = await page.evaluate(() => SKULL_DEBUG.state());
+        rec.aimedAcc = after.shots > 0 ? Math.round((after.hits / after.shots) * 100) : 0;
+        rec.aimedShots = after.shots;
+      }
+    }
     if (el > 35000 && !shot) {
       shot = true;
       await page.screenshot({ path: path.join(OUT, `match-${m + 1}-${cfg.map}.png`) });
@@ -165,6 +188,7 @@ for (let m = 0; m < 10; m++) {
   console.log(
     `M${m + 1} ${cfg.agent}/${cfg.map}/${cfg.mode}: ${rec.kills}K ${rec.deaths}D ` +
     `acc=${rec.shots ? Math.round((rec.hits / rec.shots) * 100) : 0}% ` +
+    `aimed=${rec.aimedAcc ?? '-'}%(${rec.aimedShots || 0}) ` +
     `weapons=${rec.weapons.join('+')} gold=${rec.goldGot} end=${rec.endReason}${rec.winner ? '/' + rec.winner : ''}`
   );
 }
