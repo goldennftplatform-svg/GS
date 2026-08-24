@@ -1,11 +1,10 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-// Build-stamped imports — bump BUILD so browsers drop stale cached modules
-const BUILD = 'v20260824b';
-import { AGENTS, getAgent, statBar } from './roster.js?' + BUILD;
-import { MAPS, getMap, buildMapById, bindThree, PAD_SPOTS, GOLD_SPOTS } from './maps.js?' + BUILD;
-import { WEAPONS, GOLD_SHOTS, GUN_RANK, getWeapon } from './weapons.js?' + BUILD;
-import { BRAND } from './brand.js?' + BUILD;
+// Build-stamped imports — bump these versions so browsers drop stale modules
+import { AGENTS, getAgent, statBar } from './roster.js?v=20260824b';
+import { MAPS, getMap, buildMapById, bindThree, PAD_SPOTS, GOLD_SPOTS } from './maps.js?v=20260824b';
+import { WEAPONS, GOLD_SHOTS, GUN_RANK, getWeapon } from './weapons.js?v=20260824b';
+import { BRAND } from './brand.js?v=20260824b';
 
 const PALETTE = {
   cream: 0xfff2b3,
