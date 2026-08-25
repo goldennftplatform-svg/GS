@@ -567,14 +567,34 @@ function drawRadar() {
 
   // Floor pads: cream = weapon, blue = armor, blinking gold = Golden Skullgun
   if (offlineMode) {
+    const t = Date.now();
     for (const pad of pads) {
       if (!pad.active) continue;
       g.fillStyle = pad.kind === 'armor' ? '#7fa8ff' : '#fff2b3';
       g.fillRect(cx + pad.x * scale - 3, cy + pad.z * scale - 3, 6, 6);
+      // spawn ping — expanding ring for a beat after a pad appears
+      const age = t - (pad.pingAt || 0);
+      if (age >= 0 && age < 1600) {
+        g.strokeStyle = `rgba(255, 242, 179, ${1 - age / 1600})`;
+        g.lineWidth = 2;
+        g.beginPath();
+        g.arc(cx + pad.x * scale, cy + pad.z * scale, 4 + (age / 1600) * 14, 0, Math.PI * 2);
+        g.stroke();
+      }
     }
-    if (goldPad && goldPad.spawned && Math.floor(performance.now() / 280) % 2 === 0) {
-      g.fillStyle = '#ffd700';
-      g.fillRect(cx + goldPad.x * scale - 4, cy + goldPad.z * scale - 4, 8, 8);
+    if (goldPad && goldPad.spawned) {
+      if (Math.floor(performance.now() / 280) % 2 === 0) {
+        g.fillStyle = '#ffd700';
+        g.fillRect(cx + goldPad.x * scale - 4, cy + goldPad.z * scale - 4, 8, 8);
+      }
+      const gage = t - (goldPad.pingAt || 0);
+      if (gage >= 0 && gage < 2400) {
+        g.strokeStyle = `rgba(255, 215, 0, ${1 - gage / 2400})`;
+        g.lineWidth = 2;
+        g.beginPath();
+        g.arc(cx + goldPad.x * scale, cy + goldPad.z * scale, 5 + (gage / 2400) * 20, 0, Math.PI * 2);
+        g.stroke();
+      }
     }
   } else {
     for (const p of netPickups) {
@@ -929,6 +949,7 @@ function resetPads(now = Date.now()) {
   for (const pad of pads) {
     pad.active = true;
     pad.respawnAt = 0;
+    pad.pingAt = now;
     if (pad.mesh) pad.mesh.visible = true;
     if (pad.beam) pad.beam.visible = true;
   }
@@ -965,6 +986,7 @@ function tickPads(now) {
   for (const pad of pads) {
     if (!pad.active && now >= pad.respawnAt) {
       pad.active = true;
+      pad.pingAt = now;
       if (pad.mesh) pad.mesh.visible = true;
       if (pad.beam) pad.beam.visible = true;
     }
@@ -973,12 +995,14 @@ function tickPads(now) {
     if (!goldPad.spawned && now - matchStartedAt >= GOLD_LIVE_MS) {
       goldPad.spawned = true;
       goldPad.active = true;
+      goldPad.pingAt = now;
       if (goldPad.mesh) goldPad.mesh.visible = true;
       if (goldPad.beam) goldPad.beam.visible = true;
       showCenter('THE GOLDEN SKULLGUN IS LIVE', 2000);
       playGoldSting();
     } else if (goldPad.spawned && !goldPad.active && now >= goldPad.respawnAt) {
       goldPad.active = true;
+      goldPad.pingAt = now;
       if (goldPad.mesh) goldPad.mesh.visible = true;
       if (goldPad.beam) goldPad.beam.visible = true;
       showCenter('THE GOLDEN SKULLGUN RETURNS', 1600);
@@ -1682,9 +1706,11 @@ function applyShot(shooter, now) {
     }
   }
   if (best) {
-    const absorbed = W.oneShot ? 0 : Math.min(best.armor || 0, W.dmg * ARMOR_ABSORB);
+    // LIVE & LET DIE hits harder — fights have to bleed lives for the mode to resolve
+    const dmgOut = W.dmg * (offlineMatch.mode === 'l2t' ? 1.3 : 1);
+    const absorbed = W.oneShot ? 0 : Math.min(best.armor || 0, dmgOut * ARMOR_ABSORB);
     best.armor = Math.max(0, (best.armor || 0) - absorbed);
-    best.hp -= W.dmg - absorbed;
+    best.hp -= dmgOut - absorbed;
     flashEntityById(best.id);
     spawnImpact(origin.x + dir.x * bestT, origin.y + dir.y * bestT, origin.z + dir.z * bestT, true);
     if (shooter.id === myId) {

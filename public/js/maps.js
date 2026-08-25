@@ -45,6 +45,7 @@ export const PAD_SPOTS = {
     { x: 27, z: 27, w: 'armor' },
     { x: -21, z: -42, w: 'armor' },
     { x: 21, z: 42, w: 'kf7' },
+    { x: 0, z: 0, w: 'dd' },
   ],
   lunch: [
     { x: -22, z: -22, w: 'kf7' },
@@ -53,6 +54,7 @@ export const PAD_SPOTS = {
     { x: 22, z: 22, w: 'armor' },
     { x: -17, z: -40, w: 'armor' },
     { x: 17, z: 40, w: 'kf7' },
+    { x: 0, z: -18, w: 'dd' },
   ],
   starbucks: [
     { x: -20, z: -20, w: 'kf7' },
@@ -61,6 +63,7 @@ export const PAD_SPOTS = {
     { x: 20, z: 20, w: 'armor' },
     { x: -14, z: -31, w: 'armor' },
     { x: 14, z: 31, w: 'kf7' },
+    { x: 0, z: 0, w: 'dd' },
   ],
   megacorp: [
     { x: -25, z: -25, w: 'kf7' },
@@ -69,6 +72,7 @@ export const PAD_SPOTS = {
     { x: 25, z: 25, w: 'armor' },
     { x: -13, z: -41, w: 'armor' },
     { x: 13, z: 41, w: 'kf7' },
+    { x: 0, z: 26, w: 'dd' },
   ],
   facility: [
     { x: -29, z: -29, w: 'kf7' },
@@ -77,6 +81,7 @@ export const PAD_SPOTS = {
     { x: 29, z: 29, w: 'armor' },
     { x: 0, z: -58, w: 'armor' },
     { x: 0, z: 46, w: 'kf7' },
+    { x: 0, z: -22, w: 'dd' },
   ],
 };
 
