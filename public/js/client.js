@@ -27,7 +27,7 @@ const BOLT_LIFE = 0.7;
 const MAX_BOLTS = 10;
 const PAD_RADIUS = 1.5;
 const PAD_RESPAWN_MS = 22000;
-const GOLD_LIVE_MS = 20000;
+const GOLD_LIVE_MS = 12000;
 const GOLD_RESPAWN_MS = 30000;
 const ARMOR_ABSORB = 0.55;
 const STREAK_TEXT = { 2: 'DOUBLE KILL', 3: 'TRIPLE KILL', 4: 'KILLING SPREE' };
@@ -458,8 +458,7 @@ async function loadGameAssets() {
     models.server = groundNormalize(models.server, 3.4);
     models.hazard = groundNormalize(models.hazard, 2.2);
     models.bag = groundNormalize(models.bag, 1.0);
-    models.token = groundNormalize(models.token, 0.55);
-    models.heart = groundNormalize(models.heart, 0.7);
+        models.heart = groundNormalize(models.heart, 0.7);
     models.daisy = groundNormalize(models.daisy, 1.15);
     models.badge = groundNormalize(models.badge, 1.0);
     models.skate = groundNormalize(models.skate, 0.35);
@@ -534,7 +533,7 @@ function loadSelectedMap(mapId = selectedMapId) {
   });
   if (els.mapTag) els.mapTag.textContent = map.name;
   buildPads();
-  if (models.crate || models.token) decorateMapProps();
+  if (models.crate) decorateMapProps();
   return map;
 }
 
@@ -806,19 +805,6 @@ function decorateMapProps() {
 
   for (const spawn of SPAWNS) {
     placeProp(models.heart, spawn.x + 2.5, spawn.z - 2, { y: 1.4, spin: true, hoverBob: true });
-  }
-
-  if (models.token) {
-    for (let i = 0; i < 20; i++) {
-      const a = (i / 20) * Math.PI * 2;
-      const rad = r * (0.25 + (i % 4) * 0.12);
-      placeProp(models.token, Math.cos(a) * rad, Math.sin(a) * rad, {
-        y: 1.15,
-        spin: true,
-        hoverBob: true,
-        scale: 0.9,
-      });
-    }
   }
 
   if (selectedMapId === 'stadium' && models.crate) {
@@ -1725,7 +1711,7 @@ function applyShot(shooter, now) {
       best.lives = Math.max(0, best.lives - 1);
       // LIVE & LET DIE: no respawn once you're out of skulls
       if (offlineMatch.mode !== 'l2t' || best.lives > 0) {
-        best.respawnAt = now + 4500;
+        best.respawnAt = now + 3000;
       }
       shooter.kills += 1;
       shooter.tokens += 5;
@@ -1818,7 +1804,7 @@ function pointBlocked(x, z, r = 0.42) {
 function moveEntity(p, forward, strafe, sprint, wantJump, dt) {
   const mul = p.speedMul || 1;
   // GE agents: fast, grounded, strafe-running advantage — no jumping
-  const speed = (sprint ? 11.5 : 8.2) * mul;
+  const speed = (sprint ? 13.5 : 9.6) * mul;
   let mx = strafe * 1.12;
   let mz = forward;
   const len = Math.hypot(mx, mz);
@@ -1873,7 +1859,7 @@ function updateBots(dt, now) {
     } else {
       bot.sawAt = 0;
     }
-    const reacted = bot.sawAt && now - bot.sawAt > 550;
+    const reacted = bot.sawAt && now - bot.sawAt > 450;
 
     const lowHp = bot.hp < bot.maxHp * 0.35;
     // Lost sight? Drop to a cautious prowl instead of swarming the last spot
@@ -1885,7 +1871,7 @@ function updateBots(dt, now) {
     const W = getWeapon(bot.weapon);
     if (reacted && dist < W.range * 0.45) {
       const closeBonus = Math.max(0, 1 - dist / (W.range * 0.45));
-      const rate = W.auto ? 0.6 + closeBonus * 0.7 : 0.34 + closeBonus * 0.4;
+      const rate = W.auto ? 0.8 + closeBonus * 0.9 : 0.5 + closeBonus * 0.5;
       if (Math.random() < rate * dt) applyShot(bot, now);
     }
   }

@@ -106,9 +106,13 @@ await sleep(500);
 st = await page.evaluate(() => SKULL_DEBUG.state());
 check('KF7: auto fire produces shots while held', st.shots >= 2, `shots=${st.shots}`);
 await up();
+// Baseline only after the release has actually propagated — with fast
+// cadences a CDP roundtrip can outrun one fire interval.
+await page.waitForFunction(() => !window.SKULL_DEBUG.state().shootHeld, { timeout: 2000 });
+const frozen0 = await page.evaluate(() => SKULL_DEBUG.state());
 await sleep(400);
 const frozen = await page.evaluate(() => SKULL_DEBUG.state());
-check('KF7: release stops firing', frozen.shots === st.shots, `${st.shots} -> ${frozen.shots}`);
+check('KF7: release stops firing', frozen.shots === frozen0.shots, `${frozen0.shots} -> ${frozen.shots}`);
 
 // ---- T4: swallowed pointerup / lost lock cannot stick the trigger ----
 await down();

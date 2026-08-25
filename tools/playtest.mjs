@@ -28,20 +28,26 @@ const MATCH_MS = 75000;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const rnd = (a) => a[Math.floor(Math.random() * a.length)];
 
-const browser = await puppeteer.launch({
-  executablePath: exe,
-  headless: true,
-  args: [
-    '--enable-unsafe-swiftshader',
-    '--use-gl=angle',
-    '--use-angle=swiftshader',
-    '--window-size=1280,720',
-    '--autoplay-policy=no-user-gesture-required',
-  ],
-});
-const page = await browser.newPage();
-await page.setViewport({ width: 1280, height: 720 });
-page.on('pageerror', (e) => console.log('PAGE ERROR:', e.message));
+let browser = null;
+let page = null;
+async function launch() {
+  if (browser) { try { await browser.close(); } catch {} }
+  browser = await puppeteer.launch({
+    executablePath: exe,
+    headless: true,
+    args: [
+      '--enable-unsafe-swiftshader',
+      '--use-gl=angle',
+      '--use-angle=swiftshader',
+      '--window-size=1280,720',
+      '--autoplay-policy=no-user-gesture-required',
+    ],
+  });
+  page = await browser.newPage();
+  await page.setViewport({ width: 1280, height: 720 });
+  page.on('pageerror', (e) => console.log('PAGE ERROR:', e.message));
+}
+await launch();
 
 const results = [];
 
@@ -59,6 +65,7 @@ for (let m = 0; m < 10; m++) {
   const cfg = configs[m];
   const rec = { ...cfg, shots: 0, hits: 0, kills: 0, deaths: 0, weapons: new Set(), goldGot: false, armorGot: false, hpMin: 999, endReason: 'time', feed: [], tFirstKill: null, tFirstDeath: null, winner: null };
   const t0 = Date.now();
+  try {
   await page.goto('http://localhost:3000', { waitUntil: 'networkidle2', timeout: 60000 });
   await page.waitForFunction(() => !!window.SKULL_DEBUG, { timeout: 30000 });
   await page.evaluate((c) => {
@@ -185,6 +192,13 @@ for (let m = 0; m < 10; m++) {
   rec.weapons = [...rec.weapons];
   rec.durationS = Math.round((Date.now() - t0) / 1000);
   results.push(rec);
+  } catch (err) {
+    rec.endReason = 'page-crash';
+    results.push(rec);
+    console.log(`M${m + 1} ${cfg.agent}/${cfg.map}/${cfg.mode}: PAGE CRASH � ${String(err.message).slice(0, 70)}`);
+    await launch();
+  }
+  if (results[results.length - 1] !== rec || rec.endReason === 'page-crash') continue;
   console.log(
     `M${m + 1} ${cfg.agent}/${cfg.map}/${cfg.mode}: ${rec.kills}K ${rec.deaths}D ` +
     `acc=${rec.shots ? Math.round((rec.hits / rec.shots) * 100) : 0}% ` +

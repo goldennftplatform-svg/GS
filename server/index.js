@@ -9,7 +9,7 @@ const MAX_PLAYERS = 4;
 const TICK_MS = 50;
 const MATCH_SECONDS = 180;
 const PLAYER_HP = 100;
-const RESPAWN_MS = 4500;
+const RESPAWN_MS = 3000;
 const HIT_RADIUS = 0.95;
 const PLAYER_HEIGHT = 1.65;
 
@@ -23,16 +23,16 @@ const MAP_DEFS = {
 
 // ===== Arsenal — keep in sync with public/js/weapons.js =====
 const WEAPONS = {
-  pp7: { name: 'PP7 RAY', dmg: 44, cd: 260, mag: -1, reloadMs: 0, spread: 0, auto: true, range: 70, oneShot: false },
-  klobber: { name: 'KLOBBER', dmg: 24, cd: 160, mag: 70, reloadMs: 1400, spread: 0.03, auto: true, range: 60, oneShot: false },
-  dd: { name: 'DD SKULL', dmg: 72, cd: 560, mag: 21, reloadMs: 1600, spread: 0.006, auto: false, range: 80, oneShot: false },
-  kf7: { name: 'KF7 SKULLETV', dmg: 36, cd: 180, mag: 90, reloadMs: 2000, spread: 0.016, auto: true, range: 75, oneShot: false },
+  pp7: { name: 'PP7 RAY', dmg: 40, cd: 200, mag: -1, reloadMs: 0, spread: 0, auto: true, range: 70, oneShot: false },
+  klobber: { name: 'KLOBBER', dmg: 24, cd: 120, mag: 70, reloadMs: 1400, spread: 0.03, auto: true, range: 60, oneShot: false },
+  dd: { name: 'DD SKULL', dmg: 72, cd: 470, mag: 21, reloadMs: 1600, spread: 0.006, auto: false, range: 80, oneShot: false },
+  kf7: { name: 'KF7 SKULLETV', dmg: 36, cd: 150, mag: 90, reloadMs: 2000, spread: 0.016, auto: true, range: 75, oneShot: false },
   gold: { name: 'GOLDEN SKULLGUN', dmg: 250, cd: 850, mag: 5, reloadMs: 0, spread: 0, auto: false, range: 99, oneShot: true },
 };
 const GOLD_SHOTS = 5;
 const PAD_RADIUS = 1.5;
 const PAD_RESPAWN_MS = 22000;
-const GOLD_LIVE_MS = 20000;
+const GOLD_LIVE_MS = 12000;
 const GOLD_RESPAWN_MS = 30000;
 const ARMOR_ABSORB = 0.55;
 const STREAK_TEXT = { 2: 'DOUBLE KILL', 3: 'TRIPLE KILL', 4: 'KILLING SPREE' };
@@ -102,6 +102,7 @@ function resetPads(now) {
 }
 
 function cornerSpawns(r) {
+  r = Math.round(r * 0.7);
   return [
     { x: -r, y: PLAYER_HEIGHT, z: -r, yaw: Math.PI / 4 },
     { x: r, y: PLAYER_HEIGHT, z: -r, yaw: (3 * Math.PI) / 4 },
@@ -584,7 +585,7 @@ wss.on('connection', (ws) => {
       p.pitch = pitch;
       const dt = TICK_MS / 1000;
 
-      const speed = (msg.sprint ? 11.5 : 8.2) * (p.speedMul || 1);
+      const speed = (msg.sprint ? 13.5 : 9.6) * (p.speedMul || 1);
       let mx = 0;
       let mz = 0;
       if (msg.f) mz -= 1;

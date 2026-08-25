@@ -2,8 +2,8 @@
 export const WEAPONS = {
   pp7: {
     name: 'PP7 RAY',
-    dmg: 44,
-    cd: 260,
+    dmg: 40,
+    cd: 200,
     mag: -1,
     reloadMs: 0,
     spread: 0,
@@ -18,7 +18,7 @@ export const WEAPONS = {
   klobber: {
     name: 'KLOBBER',
     dmg: 24,
-    cd: 160,
+    cd: 120,
     mag: 70,
     reloadMs: 1400,
     spread: 0.03,
@@ -33,7 +33,7 @@ export const WEAPONS = {
   dd: {
     name: 'DD SKULL',
     dmg: 72,
-    cd: 560,
+    cd: 470,
     mag: 21,
     reloadMs: 1600,
     spread: 0.006,
@@ -48,7 +48,7 @@ export const WEAPONS = {
   kf7: {
     name: 'KF7 SKULLETV',
     dmg: 36,
-    cd: 180,
+    cd: 150,
     mag: 90,
     reloadMs: 2000,
     spread: 0.016,

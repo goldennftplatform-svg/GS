@@ -367,6 +367,7 @@ function api(ctx) {
   }
 
   function cornerSpawns(r) {
+    r = Math.round(r * 0.7);
     ctx.setSpawns([
       { x: -r, y: eye, z: -r, yaw: Math.PI / 4 },
       { x: r, y: eye, z: -r, yaw: (3 * Math.PI) / 4 },
