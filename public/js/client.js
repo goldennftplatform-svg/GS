@@ -2509,6 +2509,24 @@ window.SKULL_DEBUG = {
     const me = offlineMode && offlineMatch && offlineMatch.roster.find((p) => p.id === myId);
     return me ? { x: me.x, z: me.z, yaw } : null;
   },
+  teleport(x, z) {
+    const me = offlineMode && offlineMatch && offlineMatch.roster.find((p) => p.id === myId);
+    if (!me) return false;
+    me.x = x;
+    me.z = z;
+    return true;
+  },
+  debugPads() {
+    if (!offlineMode || !offlineMatch) return null;
+    return {
+      startedAt: matchStartedAt,
+      now: Date.now(),
+      pads: pads.map((p) => ({ x: p.x, z: p.z, w: p.w, active: p.active, hasMesh: !!p.mesh })),
+      gold: goldPad
+        ? { x: goldPad.x, z: goldPad.z, spawned: goldPad.spawned, active: goldPad.active }
+        : null,
+    };
+  },
   setMode(m) {
     selectedMode = m === 'l2t' ? 'l2t' : 'dm';
   },
