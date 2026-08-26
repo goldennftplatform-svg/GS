@@ -364,7 +364,7 @@ html, body {
   position: absolute;
   top: 4.5rem;
   right: 1rem;
-  width: 280px;
+  width: 300px;
   font-family: "Press Start 2P", monospace;
   font-size: 8px;
   line-height: 1.6;
@@ -372,9 +372,17 @@ html, body {
 }
 
 #killFeed div {
-  background: rgba(0,0,0,0.45);
+  background: rgba(0,0,0,0.55);
   margin-bottom: 0.25rem;
-  padding: 0.35rem 0.45rem;
+  padding: 0.4rem 0.55rem;
+  border-right: 3px solid var(--green);
+  animation: feedIn 0.25s ease-out;
+  backdrop-filter: blur(2px);
+}
+
+@keyframes feedIn {
+  from { opacity: 0; transform: translateX(12px); }
+  to   { opacity: 1; transform: translateX(0); }
 }
 
 #scoreboard {
@@ -384,10 +392,25 @@ html, body {
   font-family: "Press Start 2P", monospace;
   font-size: 8px;
   line-height: 1.7;
-  background: rgba(0,0,0,0.4);
+  background: rgba(0,0,0,0.5);
   border: 1px solid rgba(107,175,110,0.5);
   padding: 0.6rem 0.75rem;
-  min-width: 180px;
+  min-width: 200px;
+  backdrop-filter: blur(2px);
+}
+
+#scoreboard div {
+  padding: 2px 0;
+  border-left: 3px solid transparent;
+  padding-left: 6px;
+  margin-bottom: 1px;
+  transition: background 0.15s;
+}
+
+#scoreboard div:first-child {
+  border-bottom: 1px solid rgba(107,175,110,0.3);
+  padding-bottom: 4px;
+  margin-bottom: 4px;
 }
 
 #weaponName {
@@ -544,8 +567,8 @@ html, body {
 
 .select-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 0.75rem;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.85rem;
   align-content: start;
 }
 
@@ -574,45 +597,76 @@ html, body {
   background: #121812;
   cursor: pointer;
   overflow: hidden;
-  transition: border-color 0.12s, transform 0.12s;
+  transition: border-color 0.2s, transform 0.2s, box-shadow 0.3s;
   text-align: left;
   color: inherit;
   font: inherit;
   padding: 0;
+  position: relative;
+}
+
+.agent-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0;
+  width: 4px; height: 100%;
+  background: var(--agent-clr, var(--green));
+  opacity: 0.6;
+  transition: opacity 0.2s;
 }
 
 .agent-card:hover {
-  border-color: var(--green);
-  transform: translateY(-2px);
+  border-color: var(--agent-clr, var(--green));
+  transform: translateY(-3px);
 }
+
+.agent-card:hover::before { opacity: 1; }
 
 .agent-card.selected {
   border-color: var(--cream);
-  box-shadow: 0 0 0 2px var(--green);
+  box-shadow:
+    0 0 12px color-mix(in srgb, var(--agent-clr, var(--green)) 60%, transparent),
+    0 0 28px color-mix(in srgb, var(--agent-clr, var(--green)) 30%, transparent);
+  animation: agentPulse 2s ease-in-out infinite alternate;
+}
+
+@keyframes agentPulse {
+  from { box-shadow: 0 0 12px color-mix(in srgb, var(--agent-clr, var(--green)) 50%, transparent), 0 0 28px color-mix(in srgb, var(--agent-clr, var(--green)) 20%, transparent); }
+  to   { box-shadow: 0 0 18px color-mix(in srgb, var(--agent-clr, var(--green)) 70%, transparent), 0 0 40px color-mix(in srgb, var(--agent-clr, var(--green)) 35%, transparent); }
 }
 
 .agent-card .thumb {
-  height: 110px;
+  height: 185px;
   background-size: cover;
   background-repeat: no-repeat;
   border-bottom: 2px solid #2a3528;
-  filter: saturate(1.1) contrast(1.05);
+  filter: saturate(1.15) contrast(1.08);
+  transition: filter 0.25s, transform 0.3s;
+  transform-origin: center 40%;
+}
+
+.agent-card:hover .thumb {
+  filter: saturate(1.35) contrast(1.12) brightness(1.05);
+  transform: scale(1.04);
 }
 
 .agent-card .meta {
-  padding: 0.55rem 0.65rem 0.7rem;
+  padding: 0.6rem 0.7rem 0.75rem;
+  background: linear-gradient(180deg, rgba(18,24,18,0.9), #121812);
 }
 
 .agent-card .slot {
   font-family: "Press Start 2P", monospace;
   font-size: 8px;
-  color: var(--green);
+  color: var(--agent-clr, var(--green));
   margin-bottom: 0.25rem;
+  letter-spacing: 1px;
 }
 
 .agent-card .name {
-  font-size: 1.05rem;
+  font-size: 1.1rem;
   line-height: 1.1;
+  text-shadow: 0 0 12px color-mix(in srgb, var(--agent-clr, var(--green)) 40%, transparent);
 }
 
 .agent-card .code {
@@ -620,21 +674,34 @@ html, body {
   font-size: 7px;
   opacity: 0.7;
   margin-top: 0.25rem;
+  color: var(--agent-clr, var(--green));
 }
 
 .select-dossier {
-  border: 3px solid var(--green-dark);
+  border: 3px solid var(--agent-clr, var(--green-dark));
   background: linear-gradient(180deg, #1c261c, #101610);
   display: flex;
   flex-direction: column;
   min-height: 0;
+  transition: border-color 0.3s;
 }
 
 .dossier-art {
-  height: 180px;
+  height: 260px;
   background-size: cover;
   background-position: center top;
-  border-bottom: 3px solid #2a3528;
+  border-bottom: 3px solid var(--agent-clr, #2a3528);
+  position: relative;
+  transition: background-image 0.3s ease, border-color 0.3s;
+}
+
+.dossier-art::after {
+  content: '';
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 60px;
+  background: linear-gradient(transparent, #1c261c);
+  pointer-events: none;
 }
 
 .dossier-body {
@@ -645,19 +712,20 @@ html, body {
 .dossier-slot {
   font-family: "Press Start 2P", monospace;
   font-size: 9px;
-  color: var(--green);
+  color: var(--agent-clr, var(--green));
 }
 
 .dossier-body h3 {
   font-size: 1.8rem;
   margin: 0.25rem 0;
   line-height: 1;
+  text-shadow: 0 0 16px color-mix(in srgb, var(--agent-clr, var(--green)) 30%, transparent);
 }
 
 .dossier-code {
   font-family: "Press Start 2P", monospace;
   font-size: 8px;
-  color: var(--brown);
+  color: var(--agent-clr, var(--brown));
   margin-bottom: 0.7rem;
 }
 
@@ -678,9 +746,36 @@ html, body {
 .dossier-stats {
   font-family: "Press Start 2P", monospace;
   font-size: 8px;
-  line-height: 1.8;
+  line-height: 2.2;
   margin-bottom: 0.7rem;
   color: var(--cream);
+}
+
+.stat-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 3px;
+}
+
+.stat-label {
+  width: 28px;
+  color: var(--agent-clr, var(--green));
+}
+
+.stat-bar-bg {
+  flex: 1;
+  height: 8px;
+  background: #1a2218;
+  border: 1px solid #2a3528;
+  position: relative;
+  overflow: hidden;
+}
+
+.stat-bar-fill {
+  height: 100%;
+  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  background: var(--agent-clr, var(--green));
 }
 
 .dossier-tip {
@@ -709,7 +804,7 @@ html, body {
   .select-wrap { grid-template-columns: 1fr; }
   .select-grid { grid-template-columns: repeat(2, 1fr); }
   .map-row { grid-template-columns: repeat(2, 1fr); }
-  .dossier-art { height: 140px; }
+  .dossier-art { height: 180px; }
   #radar { width: 120px; height: 120px; bottom: 4.8rem; }
 }
 

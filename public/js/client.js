@@ -326,6 +326,7 @@ function makeNameSprite(text, cssColor) {
 function addIdentityKit(group, agent, tagY) {
   const cssColor = agent.color || '#' + new THREE.Color(agent.tint ?? 0x6baf6e).getHexString();
   const hex = agent.tint ?? 0x6baf6e;
+  const accentHex = agent.accent ? new THREE.Color(agent.accent).getHex() : hex;
 
   const ring = new THREE.Mesh(
     new THREE.TorusGeometry(0.55, 0.08, 8, 26),
@@ -340,7 +341,21 @@ function addIdentityKit(group, agent, tagY) {
   ring.position.y = 0.09;
   group.add(ring);
 
-  // Vertical beacon column so agents pop across the arena
+  const accentRing = new THREE.Mesh(
+    new THREE.TorusGeometry(0.62, 0.04, 8, 26),
+    new THREE.MeshStandardMaterial({
+      color: accentHex,
+      emissive: accentHex,
+      emissiveIntensity: 1.2,
+      roughness: 0.35,
+      transparent: true,
+      opacity: 0.7,
+    })
+  );
+  accentRing.rotation.x = -Math.PI / 2;
+  accentRing.position.y = 0.09;
+  group.add(accentRing);
+
   const beam = new THREE.Mesh(
     new THREE.CylinderGeometry(0.07, 0.16, 2.4, 8, 1, true),
     new THREE.MeshBasicMaterial({
@@ -718,6 +733,31 @@ function makeAgentMesh(agentOrColor) {
     const clone = models.agent.clone(true);
     clone.scale.multiplyScalar(agent.scale || 1);
     tintClone(clone, color);
+
+    const accentColor = new THREE.Color(agent.accent || color);
+    clone.traverse((o) => {
+      if (!o.isMesh || !o.material) return;
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      for (const m of mats) {
+        if (m.emissive) {
+          m.emissive.lerp(accentColor, 0.15);
+          m.emissiveIntensity = Math.max(m.emissiveIntensity || 0, 0.12);
+        }
+      }
+    });
+
+    const accentBand = new THREE.Mesh(
+      new THREE.TorusGeometry(0.38, 0.035, 6, 20),
+      new THREE.MeshStandardMaterial({
+        color: accentColor,
+        emissive: accentColor,
+        emissiveIntensity: 1.8,
+        roughness: 0.3,
+      })
+    );
+    accentBand.rotation.x = -Math.PI / 2;
+    accentBand.position.y = 1.25;
+    clone.add(accentBand);
 
     if (agent.id === 'daisy' && models.daisy) {
       // DAISY SKULL: real daisy crown, popped so it reads on any body color
@@ -1195,7 +1235,7 @@ function spendGolden(e) {
     mountViewmodel('raygun');
     showCenter('GOLDEN SKULLGUN SPENT', 1300);
   } else {
-    pushFeed(`${e.name} BURNED THE GOLD`);
+    pushFeed(`${e.name} BURNED THE GOLD`, '#ffd700');
   }
 }
 
@@ -1616,14 +1656,14 @@ function updateHud(state) {
   els.killFeed.innerHTML = state.killFeed
     .slice()
     .reverse()
-    .map((k) => `<div>${k.text}</div>`)
+    .map((k) => `<div style="border-right-color:${k.color || 'var(--green)'}">${k.text}</div>`)
     .join('');
 
   const board = [...state.players].sort((a, b) => b.kills - a.kills || a.deaths - b.deaths);
   els.scoreboard.innerHTML = board
     .map((p, i) => {
       const you = p.id === myId ? ' ›' : '';
-      return `<div style="color:${p.color}">${i + 1}. ${p.name}${you}  ${p.kills}-${p.deaths}</div>`;
+      return `<div style="color:${p.color};border-left-color:${p.color}${you ? ';background:rgba(107,175,110,0.08)' : ''}">${i + 1}. ${p.name}${you}  ${p.kills}-${p.deaths}</div>`;
     })
     .join('');
 
@@ -1702,8 +1742,8 @@ function makeEntity(id, name, agentId, spawnIndex, bot = false) {
   };
 }
 
-function pushFeed(text) {
-  offlineMatch.killFeed.push({ t: Date.now(), text });
+function pushFeed(text, color) {
+  offlineMatch.killFeed.push({ t: Date.now(), text, color: color || '#6baf6e' });
   if (offlineMatch.killFeed.length > 12) offlineMatch.killFeed.shift();
 }
 
@@ -1923,7 +1963,7 @@ function applyShot(shooter, now) {
       let text = `${shooter.name} ⚡ ${best.name}`;
       const tag = STREAK_TEXT[combo] || (combo >= 5 ? 'RAMPAGE' : '');
       if (tag) text += ` · ${tag}!`;
-      pushFeed(text);
+      pushFeed(text, shooter.color);
       if (shooter.id === myId) {
         playSting('kill');
         showSkullPop(best.name);
@@ -2378,18 +2418,24 @@ function armJoin(mode) {
 
 function renderDossier(agent) {
   const art = document.getElementById('dossierArt');
+  const dossier = document.getElementById('dossier');
+  if (dossier) dossier.style.setProperty('--agent-clr', agent.color);
   document.getElementById('dossierSlot').textContent = `#${String(agent.slot).padStart(2, '0')}`;
   document.getElementById('dossierName').textContent = agent.name;
   document.getElementById('dossierCode').textContent = agent.codename;
   document.getElementById('dossierBio').textContent = agent.bio;
   document.getElementById('dossierLore').textContent = agent.lore;
   document.getElementById('dossierTip').textContent = `TIP — ${agent.tip}`;
-  document.getElementById('dossierStats').innerHTML = [
-    `SPD ${statBar(agent.stats.speed, 5, '⚡')}`,
-    `HP  ${statBar(agent.stats.health, 5, '♥')}`,
-    `RAD ${statBar(agent.stats.radness, 5, '☠')}`,
-    `KIT ${agent.kit}`,
-  ].join('<br>');
+  const stats = [
+    { label: 'SPD', val: agent.stats.speed },
+    { label: 'HP', val: agent.stats.health },
+    { label: 'RAD', val: agent.stats.radness },
+  ];
+  document.getElementById('dossierStats').innerHTML =
+    stats.map((s) =>
+      `<div class="stat-row"><span class="stat-label">${s.label}</span><div class="stat-bar-bg"><div class="stat-bar-fill" style="width:${s.val * 20}%"></div></div></div>`
+    ).join('') +
+    `<div class="stat-row"><span class="stat-label">KIT</span><span style="font-size:10px;color:${agent.color}">${agent.kit}</span></div>`;
   if (art) {
     art.style.backgroundImage = `url('${agent.portrait}')`;
     art.style.backgroundPosition = agent.portraitPos || 'center';
@@ -2421,10 +2467,11 @@ function buildAgentSelect() {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'agent-card' + (agent.id === selectedAgentId ? ' selected' : '');
+    btn.style.setProperty('--agent-clr', agent.color);
     btn.innerHTML = `
       <div class="thumb" style="background-image:url('${agent.portrait}');background-position:${agent.portraitPos || 'center'}"></div>
       <div class="meta">
-        <div class="slot">#${String(agent.slot).padStart(2, '0')}</div>
+        <div class="slot">#${String(agent.slot).padStart(2, '0')} — ${agent.kit}</div>
         <div class="name">${agent.name}</div>
         <div class="code">${agent.codename}</div>
       </div>`;
@@ -2709,7 +2756,7 @@ window.SKULL_DEBUG = {
       bots: offlineMatch.roster
         .filter((p) => p.bot)
         .map((b) => ({ n: b.name, k: b.kills, d: b.deaths, alive: b.alive, hp: Math.round(b.hp), x: b.x, z: b.z })),
-      feed: offlineMatch.killFeed.slice(-6).map((f) => f.text),
+      feed: offlineMatch.killFeed.slice(-6).map((f) => ({ text: f.text, color: f.color })),
     };
   },
   aimAt(x, z) {
