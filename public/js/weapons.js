@@ -1,7 +1,7 @@
 /** SKULLBOND arsenal — homage stats tuned against the GE decomp meta. Shared by viewmodel/HUD/offline sim. */
 export const WEAPONS = {
   pp7: {
-    name: 'PP7 RAY',
+    name: 'RAY GUN',
     dmg: 40,
     cd: 200,
     mag: -1,

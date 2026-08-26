@@ -761,3 +761,43 @@ html, body {
 
 #modeBtn { font-size: 10px; padding: 0.7rem 1rem; }
 #centerMsg.big { font-size: 18px; color: var(--red); text-shadow: 2px 2px 0 #000, 0 0 14px rgba(229,57,45,0.6); }
+
+/* --- ART DOCK: the actual pitch bible, in the UI where it belongs --- */
+.boot-strip {
+  width: 100%;
+  margin-top: 10px;
+  border: 3px solid #0a0a0a;
+  image-rendering: auto;
+}
+.art-dock {
+  width: min(920px, 92vw);
+  margin: 14px auto 0;
+}
+.art-tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.art-tab {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  padding: 8px 12px;
+  background: #11150f;
+  color: #fff2b3;
+  border: 2px solid #2e6e3e;
+  cursor: pointer;
+}
+.art-tab:hover { border-color: #6baf6e; }
+.art-tab.active {
+  background: #6baf6e;
+  color: #0a0a0a;
+}
+.art-img {
+  width: 100%;
+  max-height: 250px;
+  object-fit: contain;
+  background: #0a0a0a;
+  border: 3px solid #0a0a0a;
+  margin-top: 8px;
+}

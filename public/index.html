@@ -15,7 +15,8 @@
     <div class="check-top"></div>
     <div class="boot-inner boot-fps">
       <div class="boot-hero-art">
-        <img class="boot-art" src="/assets/style-sheet.png" alt="SKULL PEPE — PP7 RAY" />
+        <img class="boot-art" src="/assets/style-sheet.png" alt="SKULL PEPE — RAY GUN" />
+        <img class="boot-strip" src="/assets/characters.png" alt="THE CREW" />
         <div class="boot-badge">4-PLAYER · 5 ARENAS · RADAR</div>
       </div>
       <div class="boot-copy">
@@ -50,6 +51,18 @@
         <h2>SELECT YOUR AGENT</h2>
         <p class="select-sub">Pick your agent and arena. Radar on. No mid-match swaps.</p>
       </header>
+
+      <div class="art-dock">
+        <div class="art-tabs">
+          <button class="art-tab active" data-art="pitch">PITCH</button>
+          <button class="art-tab" data-art="story">STORY</button>
+          <button class="art-tab" data-art="features">FEATURES</button>
+          <button class="art-tab" data-art="style-sheet">STYLE</button>
+          <button class="art-tab" data-art="concept-map">ARENAS</button>
+          <button class="art-tab" data-art="landing">POSTER</button>
+        </div>
+        <img id="artImg" class="art-img" src="/assets/pitch.png" alt="SKULLBOND ART" />
+      </div>
 
       <div class="map-row" id="mapGrid"></div>
 
@@ -118,7 +131,7 @@
     <div id="scoreboard"></div>
     <canvas id="radar" width="180" height="180"></canvas>
     <div id="mapTag"></div>
-    <div id="weaponName">PP7 RAY · HOLD LMB</div>
+    <div id="weaponName">RAY GUN · HOLD LMB</div>
       <div id="agentTag"></div>
       <div id="centerMsg"></div>
       <div id="skullPop"></div>
@@ -144,6 +157,6 @@
   }
   </script>
   <script type="module" src="/js/brand.js?v=20260824c"></script>
-  <script type="module" src="/js/client.js?v=20260825i"></script>
+  <script type="module" src="/js/client.js?v=20260825j"></script>
 </body>
 </html>

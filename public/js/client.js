@@ -33,6 +33,7 @@ const ARMOR_ABSORB = 0.55;
 const STREAK_TEXT = { 2: 'DOUBLE KILL', 3: 'TRIPLE KILL', 4: 'KILLING SPREE' };
 /** @type {{ mesh: THREE.Mesh, vx:number, vy:number, vz:number, life:number, fromId:string }[]} */
 const bolts = [];
+const tracers = []; // fading ray beams — every shot paints a ray, RAY-gun identity
 /** @type {THREE.Object3D[]} */
 const animatedProps = [];
 let audioCtx = null;
@@ -426,7 +427,7 @@ async function loadGameAssets() {
   const urls = {
     agent: '/assets/models/skullpepe.glb',
     raygun: '/assets/models/raygun.glb',
-    pp7: '/assets/models/pp7.glb',
+    pp7: '/assets/models/raygun.glb',
     klobber: '/assets/models/klobber.glb',
     ddskull: '/assets/models/ddskull.glb',
     kf7: '/assets/models/kf7.glb',
@@ -805,6 +806,59 @@ function decorateMapProps() {
 
   for (const spawn of SPAWNS) {
     placeProp(models.heart, spawn.x + 2.5, spawn.z - 2, { y: 1.4, spin: true, hoverBob: true });
+  }
+
+  // --- The rest of the sample kit earns its keep: barrels as mid-ring cover,
+  // checker walls as sightline breakers, pipes on industrial maps,
+  // skateboards where the crew would leave them, tombstones where rival
+  // agents got buried.
+  if (models.barrel) {
+    [
+      [0.42, 30],
+      [0.55, 120],
+      [0.38, 250],
+      [0.6, 315],
+    ].forEach(([rr, deg]) => {
+      const a = (deg * Math.PI) / 180;
+      placeProp(models.barrel, Math.cos(a) * r * rr, Math.sin(a) * r * rr, { collide: 1.0 });
+    });
+  }
+  if (models.checker) {
+    [
+      [0.32, 90],
+      [0.5, 270],
+    ].forEach(([rr, deg]) => {
+      const a = (deg * Math.PI) / 180;
+      placeProp(models.checker, Math.cos(a) * r * rr, Math.sin(a) * r * rr, {
+        ry: deg * (Math.PI / 180),
+        collide: 1.8,
+      });
+    });
+  }
+  if (models.pipes && (selectedMapId === 'facility' || selectedMapId === 'megacorp')) {
+    [
+      [-r * 0.72, 0, 0],
+      [r * 0.72, 0, Math.PI],
+      [0, -r * 0.78, Math.PI / 2],
+    ].forEach(([x, z, ry]) => {
+      placeProp(models.pipes, x, z, { ry, collide: 2.2 });
+    });
+  }
+  if (models.skate && (selectedMapId === 'lunch' || selectedMapId === 'starbucks')) {
+    [
+      [-r * 0.25, r * 0.18, 0.6],
+      [r * 0.3, -r * 0.12, 2.4],
+      [r * 0.05, r * 0.42, 4.1],
+    ].forEach(([x, z, ry]) => {
+      placeProp(models.skate, x, z, { ry, scale: 1.6 });
+    });
+  }
+  if (models.tomb && selectedMapId === 'stadium') {
+    for (let i = 0; i < 6; i++) {
+      const gx = -r * 0.78 + (i % 3) * 3.2;
+      const gz = -r * 0.78 + Math.floor(i / 3) * 3.6;
+      placeProp(models.tomb, gx, gz, { ry: ((i * 37) % 20 - 10) * (Math.PI / 180), collide: 0.5 });
+    }
   }
 
   if (selectedMapId === 'stadium' && models.crate) {
@@ -1288,15 +1342,17 @@ function flashMuzzle() {
 function spawnImpact(x, y, z, hitSomeone) {
   const spark = new THREE.Mesh(
     new THREE.SphereGeometry(hitSomeone ? 0.4 : 0.25, 8, 8),
-    new THREE.MeshBasicMaterial({ color: hitSomeone ? PALETTE.red : PALETTE.cream })
+    new THREE.MeshBasicMaterial({
+      color: hitSomeone ? PALETTE.red : PALETTE.cream,
+      transparent: true,
+      opacity: 0.95,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    })
   );
   spark.position.set(x, y, z);
   scene.add(spark);
-  setTimeout(() => {
-    scene.remove(spark);
-    spark.geometry.dispose();
-    spark.material.dispose();
-  }, 120);
+  tracers.push({ mesh: spark, born: performance.now(), ttl: 130 });
 }
 
 const _aimOrigin = new THREE.Vector3();
@@ -1322,17 +1378,33 @@ function spawnTracer(origin, dir, dist = 48, color = 0x9dff9a) {
   const len = Math.max(0.5, dist);
   _aimEnd.copy(origin).addScaledVector(dir, len);
   const beam = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.04, 0.015, len, 6),
-    new THREE.MeshBasicMaterial({ color })
+    new THREE.CylinderGeometry(0.06, 0.018, len, 6),
+    new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0.95,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    })
   );
   beam.position.copy(origin).addScaledVector(dir, len * 0.5);
   beam.quaternion.setFromUnitVectors(_yAxis, dir);
   scene.add(beam);
-  setTimeout(() => {
-    scene.remove(beam);
-    beam.geometry.dispose();
-    beam.material.dispose();
-  }, 60);
+  tracers.push({ mesh: beam, born: performance.now(), ttl: 140 });
+}
+
+function updateTracers() {  for (let i = tracers.length - 1; i >= 0; i--) {
+    const t = tracers[i];
+    const age = performance.now() - t.born;
+    if (age >= t.ttl) {
+      scene.remove(t.mesh);
+      t.mesh.geometry.dispose();
+      t.mesh.material.dispose();
+      tracers.splice(i, 1);
+    } else {
+      t.mesh.material.opacity = 0.95 * (1 - age / t.ttl);
+    }
+  }
 }
 
 function spawnBolt(origin, dir, fromId, color = 0x6baf6e, size = 0.16) {
@@ -2244,6 +2316,16 @@ toSelectBtn?.addEventListener('click', () => {
   buildAgentSelect();
 });
 
+// Art dock tabs — flip through the actual pitch bible
+document.querySelectorAll('.art-tab').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.art-tab').forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+    const img = document.getElementById('artImg');
+    if (img) img.src = `/assets/${btn.dataset.art}.png`;
+  });
+});
+
 backBoot?.addEventListener('click', () => {
   selectScreen.classList.add('hidden');
   boot.classList.remove('hidden');
@@ -2672,6 +2754,7 @@ function tick() {
   if (offlineMode) offlineTick(dt);
   else sendInput();
   updateBolts(dt);
+  updateTracers();
   drawRadar();
 
   renderer.render(scene, camera);

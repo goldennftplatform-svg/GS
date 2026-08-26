@@ -23,7 +23,7 @@ const MAP_DEFS = {
 
 // ===== Arsenal — keep in sync with public/js/weapons.js =====
 const WEAPONS = {
-  pp7: { name: 'PP7 RAY', dmg: 40, cd: 200, mag: -1, reloadMs: 0, spread: 0, auto: true, range: 70, oneShot: false },
+  pp7: { name: 'RAY GUN', dmg: 40, cd: 200, mag: -1, reloadMs: 0, spread: 0, auto: true, range: 70, oneShot: false },
   klobber: { name: 'KLOBBER', dmg: 24, cd: 120, mag: 70, reloadMs: 1400, spread: 0.03, auto: true, range: 60, oneShot: false },
   dd: { name: 'DD SKULL', dmg: 72, cd: 470, mag: 21, reloadMs: 1600, spread: 0.006, auto: false, range: 80, oneShot: false },
   kf7: { name: 'KF7 SKULLETV', dmg: 36, cd: 150, mag: 90, reloadMs: 2000, spread: 0.016, auto: true, range: 75, oneShot: false },
