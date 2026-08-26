@@ -34,6 +34,11 @@ const STREAK_TEXT = { 2: 'DOUBLE KILL', 3: 'TRIPLE KILL', 4: 'KILLING SPREE' };
 /** @type {{ mesh: THREE.Mesh, vx:number, vy:number, vz:number, life:number, fromId:string }[]} */
 const bolts = [];
 const tracers = []; // fading ray beams — every shot paints a ray, RAY-gun identity
+const goos = [];
+const dmgNums = [];
+let critBeatAt = 0;
+let botsFrozen = false; // diagnostic freeze — bots stand still and take it
+let matchSkipCountdown = false;
 /** @type {THREE.Object3D[]} */
 const animatedProps = [];
 let audioCtx = null;
@@ -786,6 +791,30 @@ function placeProp(src, x, z, opts = {}) {
 
 function decorateMapProps() {
   const r = Math.max(20, HALF - 10);
+  // Props must never bury a pickup, a spawn, or each other — and anything
+  // with collision needs serious distance from spawns so players never eat
+  // their own bullets on invisible cover at the arena exits.
+  const spotClear = (x, z, pad = 3.0, spawnDist = 0) => {
+    for (const p of pads) {
+      if (Math.hypot(p.x - x, p.z - z) < pad) return false;
+    }
+    if (goldPad && Math.hypot(goldPad.x - x, goldPad.z - z) < pad + 1.5) return false;
+    for (const s of SPAWNS) {
+      if (Math.hypot(s.x - x, s.z - z) < Math.max(pad + 1.5, spawnDist)) return false;
+    }
+    for (const w of WALLS) {
+      if (x > w.minX - 0.9 && x < w.maxX + 0.9 && z > w.minZ - 0.9 && z < w.maxZ + 0.9) return false;
+    }
+    return true;
+  };
+  const takeClear = (candidates, count, pad, spawnDist) => {
+    const out = [];
+    for (const [x, z] of candidates) {
+      if (out.length >= count) break;
+      if (spotClear(x, z, pad, spawnDist)) out.push([x, z]);
+    }
+    return out;
+  };
   const crateSpots = [
     [-r * 0.55, -r * 0.7],
     [r * 0.5, -r * 0.65],
@@ -798,6 +827,7 @@ function decorateMapProps() {
   ];
   crateSpots.forEach(([x, z], i) => {
     const useServer = i % 3 === 0;
+    if (!spotClear(x, z, 2.8, 11)) return;
     placeProp(useServer ? models.server : models.crate, x, z, {
       ry: i * 0.7,
       collide: useServer ? 1.2 : 0.8,
@@ -813,27 +843,29 @@ function decorateMapProps() {
   // skateboards where the crew would leave them, tombstones where rival
   // agents got buried.
   if (models.barrel) {
-    [
-      [0.42, 30],
-      [0.55, 120],
-      [0.38, 250],
-      [0.6, 315],
-    ].forEach(([rr, deg]) => {
-      const a = (deg * Math.PI) / 180;
-      placeProp(models.barrel, Math.cos(a) * r * rr, Math.sin(a) * r * rr, { collide: 1.0 });
-    });
+    const cands = [];
+    for (let i = 0; i < 10; i++) {
+      const a = ((i * 36 + 12) * Math.PI) / 180;
+      const rr = r * (0.38 + (i % 3) * 0.09);
+      cands.push([Math.cos(a) * rr, Math.sin(a) * rr]);
+    }
+    for (const [x, z] of takeClear(cands, 4, 2.6, 10)) {
+      placeProp(models.barrel, x, z, { collide: 1.0 });
+    }
   }
   if (models.checker) {
-    [
-      [0.32, 90],
-      [0.5, 270],
-    ].forEach(([rr, deg]) => {
-      const a = (deg * Math.PI) / 180;
-      placeProp(models.checker, Math.cos(a) * r * rr, Math.sin(a) * r * rr, {
-        ry: deg * (Math.PI / 180),
+    const cands = [];
+    for (let i = 0; i < 6; i++) {
+      const a = ((i * 60 + 90) * Math.PI) / 180;
+      const rr = r * (0.32 + (i % 2) * 0.16);
+      cands.push([Math.cos(a) * rr, Math.sin(a) * rr]);
+    }
+    for (const [x, z] of takeClear(cands, 2, 3.2, 11)) {
+      placeProp(models.checker, x, z, {
+        ry: Math.atan2(-z, -x),
         collide: 1.8,
       });
-    });
+    }
   }
   if (models.pipes && (selectedMapId === 'facility' || selectedMapId === 'megacorp')) {
     [
@@ -841,7 +873,7 @@ function decorateMapProps() {
       [r * 0.72, 0, Math.PI],
       [0, -r * 0.78, Math.PI / 2],
     ].forEach(([x, z, ry]) => {
-      placeProp(models.pipes, x, z, { ry, collide: 2.2 });
+      if (spotClear(x, z, 3.4, 9)) placeProp(models.pipes, x, z, { ry, collide: 2.2 });
     });
   }
   if (models.skate && (selectedMapId === 'lunch' || selectedMapId === 'starbucks')) {
@@ -850,14 +882,15 @@ function decorateMapProps() {
       [r * 0.3, -r * 0.12, 2.4],
       [r * 0.05, r * 0.42, 4.1],
     ].forEach(([x, z, ry]) => {
-      placeProp(models.skate, x, z, { ry, scale: 1.6 });
+      if (spotClear(x, z, 2.2)) placeProp(models.skate, x, z, { ry, scale: 1.6 });
     });
   }
   if (models.tomb && selectedMapId === 'stadium') {
-    for (let i = 0; i < 6; i++) {
-      const gx = -r * 0.78 + (i % 3) * 3.2;
-      const gz = -r * 0.78 + Math.floor(i / 3) * 3.6;
-      placeProp(models.tomb, gx, gz, { ry: ((i * 37) % 20 - 10) * (Math.PI / 180), collide: 0.5 });
+    for (let i = 0; i < 8; i++) {
+      const gx = -r * 0.82 + (i % 4) * 3.4;
+      const gz = -r * 0.82 + Math.floor(i / 4) * 3.8;
+      if (!spotClear(gx, gz, 2.4, 8)) continue;
+      placeProp(models.tomb, gx, gz, { ry: (((i * 37) % 20) - 10) * (Math.PI / 180), collide: 0.5 });
     }
   }
 
@@ -1137,7 +1170,7 @@ function flashEntityById(id) {
       }
       if (m.emissive) {
         m.emissive.setHex(0xff3020);
-        m.emissiveIntensity = 0.9;
+        m.emissiveIntensity = 1.4;
       }
     }
   });
@@ -1153,7 +1186,7 @@ function flashEntityById(id) {
         }
       }
     });
-  }, 90);
+  }, 140);
 }
 
 function spendGolden(e) {
@@ -1294,8 +1327,12 @@ function playClick() {
 
 function playPickup() {
   ensureAudio();
-  gunVoice('sine', 500, 950, 0.11, 0.1);
-  gunVoice('sine', 750, 1400, 0.1, 0.07, 0.07);
+  gunVoice('triangle', 660, 440, 0.14, 0.12);
+}
+
+function playHitZap() {
+  ensureAudio();
+  gunVoice('square', 1200, 300, 0.07, 0.10);
 }
 
 function playGoldSting() {
@@ -1403,6 +1440,89 @@ function updateTracers() {  for (let i = tracers.length - 1; i >= 0; i--) {
       tracers.splice(i, 1);
     } else {
       t.mesh.material.opacity = 0.95 * (1 - age / t.ttl);
+    }
+  }
+}
+
+function spawnGoo(pos) {
+  for (let i = 0; i < 6; i++) {
+    const mesh = new THREE.Mesh(
+      new THREE.BoxGeometry(0.11, 0.11, 0.11),
+      new THREE.MeshBasicMaterial({
+        color: 0x6baf6e,
+        transparent: true,
+        opacity: 0.9,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      })
+    );
+    mesh.position.copy(pos);
+    scene.add(mesh);
+    goos.push({
+      mesh,
+      vx: (Math.random() - 0.5) * 7,
+      vy: Math.random() * 6 + 2,
+      vz: (Math.random() - 0.5) * 7,
+      life: 0.55,
+    });
+  }
+}
+
+function spawnDmgNum(pos, dmg) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 64;
+  const g = canvas.getContext('2d');
+  g.font = 'bold 40px "Press Start 2P", monospace';
+  g.textAlign = 'center';
+  g.fillStyle = '#fff2b3';
+  g.strokeStyle = '#0a0a0a';
+  g.lineWidth = 4;
+  g.strokeText(`-${dmg}`, 64, 48);
+  g.fillText(`-${dmg}`, 64, 48);
+  const tex = new THREE.CanvasTexture(canvas);
+  const sprite = new THREE.Sprite(
+    new THREE.SpriteMaterial({
+      map: tex,
+      transparent: true,
+      depthTest: false,
+      blending: THREE.AdditiveBlending,
+    })
+  );
+  sprite.position.copy(pos);
+  sprite.scale.set(1.4, 0.7, 1);
+  scene.add(sprite);
+  dmgNums.push({ sprite, born: performance.now() });
+}
+
+function updateGoos(dt) {
+  for (let i = goos.length - 1; i >= 0; i--) {
+    const g = goos[i];
+    g.life -= dt;
+    g.vy -= 13 * dt;
+    g.mesh.position.x += g.vx * dt;
+    g.mesh.position.y += g.vy * dt;
+    g.mesh.position.z += g.vz * dt;
+    g.mesh.rotation.x += dt * 9;
+    g.mesh.rotation.z += dt * 7;
+    g.mesh.material.opacity = 0.9 * Math.max(0, g.life / 0.55);
+    if (g.life <= 0 || g.mesh.position.y < -1) {
+      scene.remove(g.mesh);
+      g.mesh.geometry.dispose();
+      g.mesh.material.dispose();
+      goos.splice(i, 1);
+    }
+  }
+  for (let i = dmgNums.length - 1; i >= 0; i--) {
+    const d = dmgNums[i];
+    const age = (performance.now() - d.born) / 1000;
+    d.sprite.position.y += dt * 2;
+    d.sprite.material.opacity = Math.max(0, 1 - age / 0.6);
+    if (age >= 0.6) {
+      scene.remove(d.sprite);
+      d.sprite.material.map.dispose();
+      d.sprite.material.dispose();
+      dmgNums.splice(i, 1);
     }
   }
 }
@@ -1649,15 +1769,23 @@ function startOffline(name) {
     me.lives = 2;
     for (const b of bots) b.lives = 2;
   }
-  matchStartedAt = Date.now();
+  matchStartedAt = Date.now() + 2800; // countdown freeze: nobody fires until GO
   yaw = me.yaw;
   pitch = 0;
   camera.position.set(me.x, me.y, me.z);
   localAlive = true;
   lastHp = me.maxHp;
   if (agentTag) agentTag.textContent = `#${String(mine.slot).padStart(2, '0')} ${mine.name}`;
-  beginMission(`${mine.name} — ${getMap(selectedMapId).name}`);
+  beginMission(`${mine.name} - ${getMap(selectedMapId).name}`);
   publishOfflineHud();
+  for (let c = 0; c < 4; c++) {
+    setTimeout(() => {
+      const text = c < 3 ? `${3 - c}` : 'GO';
+      showCenter(text, 800, c === 3);
+      ensureAudio();
+      gunVoice('square', c < 3 ? 440 : 880, c < 3 ? 440 : 880, c < 3 ? 0.15 : 0.22, c < 3 ? 0.14 : 0.19);
+    }, c * 800 + 200);
+  }
 }
 
 function publishOfflineHud() {
@@ -1689,6 +1817,7 @@ function applyShot(shooter, now) {
   finishReloadIfDue(shooter, now);
   const W = getWeapon(shooter.weapon);
   if (!shooter.alive || shooter.reloadingUntil || now - shooter.lastShot < W.cd) return false;
+  if (offlineMode && now < matchStartedAt && !matchSkipCountdown) return false;
   if (W.mag >= 0 && shooter.ammo <= 0) {
     startReload(shooter, now);
     return false;
@@ -1771,8 +1900,11 @@ function applyShot(shooter, now) {
     best.hp -= dmgOut - absorbed;
     flashEntityById(best.id);
     spawnImpact(origin.x + dir.x * bestT, origin.y + dir.y * bestT, origin.z + dir.z * bestT, true);
+    spawnGoo(new THREE.Vector3(origin.x + dir.x * bestT, origin.y + dir.y * bestT + 0.5, origin.z + dir.z * bestT));
+    playHitZap();
     if (shooter.id === myId) {
       localHits++;
+      spawnDmgNum(new THREE.Vector3(origin.x + dir.x * bestT, origin.y + dir.y * bestT + 1.8, origin.z + dir.z * bestT), Math.round(dmgOut));
       els.hitMarker.classList.add('show');
       setTimeout(() => els.hitMarker.classList.remove('show'), 140);
     }
@@ -1901,6 +2033,7 @@ function moveEntity(p, forward, strafe, sprint, wantJump, dt) {
 }
 
 function updateBots(dt, now) {
+  if (botsFrozen) return;
   for (const bot of offlineMatch.roster.filter((p) => p.bot)) {
     if (!bot.alive) continue;
     finishReloadIfDue(bot, now);
@@ -2577,7 +2710,7 @@ window.SKULL_DEBUG = {
         : null,
       bots: offlineMatch.roster
         .filter((p) => p.bot)
-        .map((b) => ({ n: b.name, k: b.kills, d: b.deaths, alive: b.alive, x: b.x, z: b.z })),
+        .map((b) => ({ n: b.name, k: b.kills, d: b.deaths, alive: b.alive, hp: Math.round(b.hp), x: b.x, z: b.z })),
       feed: offlineMatch.killFeed.slice(-6).map((f) => f.text),
     };
   },
@@ -2619,6 +2752,53 @@ window.SKULL_DEBUG = {
       gold: goldPad
         ? { x: goldPad.x, z: goldPad.z, spawned: goldPad.spawned, active: goldPad.active }
         : null,
+    };
+  },
+  debugSpots() {
+    return {
+      spawns: SPAWNS.map((s) => ({ x: s.x, z: s.z })),
+      pads: pads.map((p) => ({ x: p.x, z: p.z })),
+      gold: goldPad ? { x: goldPad.x, z: goldPad.z } : null,
+      walls: WALLS.length,
+    };
+  },
+  debugBlocked(x, z, pad = 1.2) {
+    const hits = [];
+    for (const w of WALLS) {
+      if (x > w.minX - pad && x < w.maxX + pad && z > w.minZ - pad && z < w.maxZ + pad) {
+        hits.push([w.minX, w.maxX, w.minZ, w.maxZ]);
+      }
+    }
+    return hits;
+  },
+  freezeBots(v) {
+    botsFrozen = !!v;
+    return botsFrozen;
+  },
+  skipCountdown(v) {
+    matchSkipCountdown = !!v;
+    return matchSkipCountdown;
+  },
+  debugShotInfo(tx, tz) {
+    const me = offlineMatch && offlineMatch.roster.find((p) => p.id === myId);
+    const bot = offlineMatch && offlineMatch.roster.filter((p) => p.bot)[0];
+    if (!me || !bot) return null;
+    const dx = tx - me.x;
+    const dz = tz - me.z;
+    const len = Math.hypot(dx, dz) || 1;
+    const t = castWalls(me.x, me.y, me.z, dx / len, 0, dz / len, 80);
+    return {
+      meX: Math.round(me.x * 10) / 10,
+      meZ: Math.round(me.z * 10) / 10,
+      meY: Math.round(me.y * 10) / 10,
+      yawNow: Math.round(yaw * 100) / 100,
+      distToBot: Math.round(len * 10) / 10,
+      tWall: Math.round(t * 10) / 10,
+      botX: Math.round(bot.x * 10) / 10,
+      botZ: Math.round(bot.z * 10) / 10,
+      botAlive: bot.alive,
+      botShieldMs: Math.max(0, (bot.spawnShieldUntil || 0) - Date.now()),
+      myWeapon: me.weapon,
     };
   },
   setMode(m) {
@@ -2755,6 +2935,24 @@ function tick() {
   else sendInput();
   updateBolts(dt);
   updateTracers();
+  updateGoos(dt);
+
+  // Low-HP heartbeat — skull agents have feelings too
+  if (offlineMode && offlineMatch) {
+    const me = offlineMatch.roster.find((p) => p.id === myId);
+    if (me && me.alive && me.hp > 0 && me.hp <= 25) {
+      const now = Date.now();
+      if (now - critBeatAt > 850) {
+        critBeatAt = now;
+        ensureAudio();
+        gunVoice('sine', 55, 38, 0.2, 0.22);
+        if (els.damage) {
+          els.damage.classList.add('crit');
+          setTimeout(() => els.damage.classList.remove('crit'), 220);
+        }
+      }
+    }
+  }
   drawRadar();
 
   renderer.render(scene, camera);

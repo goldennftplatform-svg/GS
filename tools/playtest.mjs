@@ -25,6 +25,7 @@ if (!exe) {
 const AGENTS = ['skullpepe', 'daisy', 'mini', 'boss', 'drone', 'hazard'];
 const MAPS = ['stadium', 'lunch', 'starbucks', 'megacorp', 'facility'];
 const MATCH_MS = 75000;
+const N_MATCHES = Number(process.argv[2] || 10);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const rnd = (a) => a[Math.floor(Math.random() * a.length)];
 
@@ -53,7 +54,7 @@ const results = [];
 
 // Build 10 match configs: every map twice, modes mixed, agents shuffled
 const configs = [];
-for (let i = 0; i < 10; i++) {
+for (let i = 0; i < N_MATCHES; i++) {
   configs.push({
     agent: AGENTS[i % AGENTS.length],
     map: MAPS[i % MAPS.length],
@@ -61,7 +62,7 @@ for (let i = 0; i < 10; i++) {
   });
 }
 
-for (let m = 0; m < 10; m++) {
+for (let m = 0; m < N_MATCHES; m++) {
   const cfg = configs[m];
   const rec = { ...cfg, shots: 0, hits: 0, kills: 0, deaths: 0, weapons: new Set(), goldGot: false, armorGot: false, hpMin: 999, endReason: 'time', feed: [], tFirstKill: null, tFirstDeath: null, winner: null };
   const t0 = Date.now();
@@ -228,3 +229,4 @@ console.log(`K/D: ${tot.k}/${tot.d} | accuracy: ${tot.shots ? Math.round((tot.hi
 console.log(`gold grabs: ${tot.gold}/10 | armor grabs: ${tot.armor}/10 | matches touching pads: ${tot.padFights}/10`);
 console.log(`avg time-to-first-kill: ${avg(tot.tfk)}ms | avg time-to-first-death: ${avg(tot.tfd)}ms`);
 console.log('DONE');
+

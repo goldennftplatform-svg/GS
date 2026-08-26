@@ -43,7 +43,7 @@ page.on('pageerror', (e) => console.log('PAGE ERROR:', e.message));
 
 await page.goto('http://localhost:3000', { waitUntil: 'networkidle2', timeout: 60000 });
 await page.waitForFunction(() => !!window.SKULL_DEBUG, { timeout: 30000 });
-await page.evaluate(() => SKULL_DEBUG.startSolo('skullpepe', 'stadium'));
+await page.evaluate(() => { SKULL_DEBUG.skipCountdown(true); SKULL_DEBUG.startSolo('skullpepe', 'stadium'); });
 await sleep(1200);
 let st = await page.evaluate(() => SKULL_DEBUG.state());
 check('solo match started', st.offline && st.alive);

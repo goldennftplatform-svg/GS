@@ -58,7 +58,7 @@ export const PAD_SPOTS = {
   ],
   starbucks: [
     { x: -20, z: -20, w: 'kf7' },
-    { x: 20, z: -20, w: 'dd' },
+    { x: 26, z: -13, w: 'dd' },
     { x: -20, z: 20, w: 'klobb' },
     { x: 20, z: 20, w: 'armor' },
     { x: -14, z: -31, w: 'armor' },
@@ -570,5 +570,7 @@ function buildFacility(ctx) {
   }
   solidBox(20, 3, 1.2, 0xb56a4d, -16, 1.5, -36);
   solidBox(20, 3, 1.2, 0xb56a4d, 16, 1.5, -36);
-  cornerSpawns(52);
+  cornerSpawns(46);
 }
+
+

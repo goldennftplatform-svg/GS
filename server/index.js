@@ -45,7 +45,7 @@ const GUN_PADS = {
     [-22, -22, 'kf7'], [22, -22, 'dd'], [-22, 22, 'klobb'], [22, 22, 'armor'], [-17, -40, 'armor'], [17, 40, 'kf7'], [0, -18, 'dd'],
   ],
   starbucks: [
-    [-20, -20, 'kf7'], [20, -20, 'dd'], [-20, 20, 'klobb'], [20, 20, 'armor'], [-14, -31, 'armor'], [14, 31, 'kf7'], [0, 0, 'dd'],
+    [-20, -20, 'kf7'], [26, -13, 'dd'], [-20, 20, 'klobb'], [20, 20, 'armor'], [-14, -31, 'armor'], [14, 31, 'kf7'], [0, 0, 'dd'],
   ],
   megacorp: [
     [-25, -25, 'kf7'], [25, -25, 'dd'], [-25, 25, 'klobb'], [25, 25, 'armor'], [-13, -41, 'armor'], [13, 41, 'kf7'], [0, 26, 'dd'],
@@ -741,3 +741,4 @@ server.listen(PORT, () => {
   console.log(`SKULLBOND online → http://localhost:${PORT}`);
   console.log(`WebSocket → ws://localhost:${PORT}/ws  (max ${MAX_PLAYERS})`);
 });
+
