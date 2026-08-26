@@ -30,12 +30,21 @@ const PAD_RESPAWN_MS = 22000;
 const GOLD_LIVE_MS = 12000;
 const GOLD_RESPAWN_MS = 30000;
 const ARMOR_ABSORB = 0.55;
+const GRENADE_SPEED = 28;
+const GRENADE_GRAVITY = 22;
+const GRENADE_FUSE_MS = 2400;
+const GRENADE_RADIUS = 5;
+const GRENADE_MAX = 4;
+const GRENADE_PICKUP_AMT = 2;
+const GRENADE_RESPAWN_MS = 18000;
 const STREAK_TEXT = { 2: 'DOUBLE KILL', 3: 'TRIPLE KILL', 4: 'KILLING SPREE' };
 /** @type {{ mesh: THREE.Mesh, vx:number, vy:number, vz:number, life:number, fromId:string }[]} */
 const bolts = [];
 const tracers = []; // fading ray beams — every shot paints a ray, RAY-gun identity
 const goos = [];
 const dmgNums = [];
+/** @type {{ x:number, y:number, z:number, vx:number, vy:number, vz:number, fuseAt:number, ownerId:string, mesh:THREE.Object3D, bounced:boolean }[]} */
+const liveGrenades = [];
 let critBeatAt = 0;
 let botsFrozen = false; // diagnostic freeze — bots stand still and take it
 let matchSkipCountdown = false;
@@ -102,6 +111,8 @@ const els = {
   standings: document.getElementById('standings'),
   overlayTitle: document.getElementById('overlayTitle'),
   overlayHint: document.querySelector('#overlay .hint'),
+  nadeCount: document.getElementById('nadeCount'),
+  nadeNum: document.getElementById('nadeNum'),
   radar: document.getElementById('radar'),
   mapTag: document.getElementById('mapTag'),
 };
@@ -971,7 +982,7 @@ function buildPads() {
     x: s.x,
     z: s.z,
     w: s.w,
-    kind: s.w === 'armor' ? 'armor' : 'gun',
+    kind: s.w === 'armor' ? 'armor' : s.w === 'nade' ? 'nade' : 'gun',
     active: true,
     respawnAt: 0,
     mesh: null,
@@ -988,6 +999,10 @@ function refreshPadMeshes() {
     if (kind === 'armor') {
       src = models.armorvest;
       scale = 1.9;
+    } else if (kind === 'nade') {
+      src = makeGrenadeMesh();
+      if (src) src.scale.setScalar(2.2);
+      return src;
     } else {
       src = models[MODEL_FOR_GUN[w]] || models.raygun;
       scale = 2.4;
@@ -1011,11 +1026,11 @@ function refreshPadMeshes() {
     world.add(mesh);
     animatedProps.push(mesh);
     pad.mesh = mesh;
-    // Tall beacon so pads are findable across the arena
+    const beaconColor = pad.kind === 'nade' ? 0xff4444 : pad.kind === 'armor' ? 0x7fa8ff : 0xfff2b3;
     const beam = new THREE.Mesh(
       new THREE.CylinderGeometry(0.05, 0.13, 3.4, 6, 1, true),
       new THREE.MeshBasicMaterial({
-        color: pad.kind === 'armor' ? 0x7fa8ff : 0xfff2b3,
+        color: beaconColor,
         transparent: true,
         opacity: 0.38,
         blending: THREE.AdditiveBlending,
@@ -1077,6 +1092,9 @@ function grantPickup(e, kind, w, now) {
   if (kind === 'armor') {
     if ((e.armor || 0) >= 95) return false;
     e.armor = 100;
+  } else if (kind === 'nade') {
+    if ((e.grenades || 0) >= GRENADE_MAX) return false;
+    e.grenades = Math.min(GRENADE_MAX, (e.grenades || 0) + GRENADE_PICKUP_AMT);
   } else {
     if (w !== 'gold' && (GUN_RANK[w] ?? 0) <= (GUN_RANK[e.weapon] ?? 0)) return false;
     e.weapon = w;
@@ -1085,7 +1103,8 @@ function grantPickup(e, kind, w, now) {
     if (w === 'gold') showCenter(`${e.name} HAS THE GOLDEN SKULLGUN`, 1500);
   }
   if (e.id === myId) {
-    if (kind !== 'armor') mountViewmodel(e.weapon);
+    if (kind === 'nade') showCenter(`+${GRENADE_PICKUP_AMT} HE GRENADES`, 800);
+    else if (kind !== 'armor') mountViewmodel(e.weapon);
     playPickup();
   }
   return true;
@@ -1128,7 +1147,7 @@ function tickPads(now) {
       if (Math.hypot(e.x - pad.x, e.z - pad.z) > PAD_RADIUS) continue;
       if (grantPickup(e, pad.kind, pad.w, now)) {
         pad.active = false;
-        pad.respawnAt = now + PAD_RESPAWN_MS;
+        pad.respawnAt = now + (pad.kind === 'nade' ? GRENADE_RESPAWN_MS : PAD_RESPAWN_MS);
         if (pad.mesh) pad.mesh.visible = false;
         if (pad.beam) pad.beam.visible = false;
       }
@@ -1194,6 +1213,184 @@ function finishReloadIfDue(e, now) {
     e.ammo = getWeapon(e.weapon).mag;
   }
 }
+
+// ---- HE GRENADE SYSTEM ----
+function makeGrenadeMesh() {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.12, 0.14, 0.36, 10),
+    new THREE.MeshStandardMaterial({ color: 0x3a5a32, roughness: 0.6, metalness: 0.3 })
+  );
+  g.add(body);
+  const top = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.08, 0.1, 0.08, 10),
+    new THREE.MeshStandardMaterial({ color: 0x555555, roughness: 0.3, metalness: 0.7 })
+  );
+  top.position.y = 0.22;
+  g.add(top);
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(0.05, 0.012, 6, 12),
+    new THREE.MeshStandardMaterial({ color: 0x888888, metalness: 0.8, roughness: 0.2 })
+  );
+  ring.position.set(0.08, 0.22, 0);
+  ring.rotation.z = -0.4;
+  g.add(ring);
+  g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  return g;
+}
+
+function throwGrenade(e) {
+  if (!e.alive || (e.grenades || 0) <= 0) return;
+  e.grenades--;
+  const dir = new THREE.Vector3(-Math.sin(e.yaw), 0, -Math.cos(e.yaw));
+  const mesh = makeGrenadeMesh();
+  mesh.position.set(e.x, e.y + 1.4, e.z);
+  scene.add(mesh);
+  liveGrenades.push({
+    x: e.x, y: e.y + 1.4, z: e.z,
+    vx: dir.x * GRENADE_SPEED,
+    vy: GRENADE_SPEED * 0.45,
+    vz: dir.z * GRENADE_SPEED,
+    fuseAt: Date.now() + GRENADE_FUSE_MS,
+    ownerId: e.id,
+    mesh,
+    bounced: false,
+  });
+  if (e.id === myId) {
+    ensureAudio();
+    gunVoice('square', 1800, 800, 0.15, 0.12);
+    showCenter('FRAG OUT', 600);
+  }
+}
+
+function explodeGrenade(g, now) {
+  const ex = g.x, ey = g.y, ez = g.z;
+  if (g.mesh) scene.remove(g.mesh);
+
+  // Explosion VFX — flash + debris ring
+  const flash = new THREE.PointLight(0xff6622, 6, GRENADE_RADIUS * 2.5);
+  flash.position.set(ex, ey, ez);
+  scene.add(flash);
+  setTimeout(() => scene.remove(flash), 180);
+
+  for (let i = 0; i < 14; i++) {
+    const angle = (i / 14) * Math.PI * 2;
+    const spd = 3 + Math.random() * 5;
+    const debris = new THREE.Mesh(
+      new THREE.BoxGeometry(0.08 + Math.random() * 0.12, 0.06 + Math.random() * 0.1, 0.06 + Math.random() * 0.1),
+      new THREE.MeshStandardMaterial({ color: Math.random() > 0.5 ? 0xff6622 : 0xcc4400, emissive: 0xff4400, emissiveIntensity: 0.8 })
+    );
+    debris.position.set(ex, ey, ez);
+    scene.add(debris);
+    goos.push({
+      mesh: debris,
+      vx: Math.cos(angle) * spd,
+      vy: 2 + Math.random() * 4,
+      vz: Math.sin(angle) * spd,
+      life: 0.4 + Math.random() * 0.3,
+    });
+  }
+
+  // Screen shake for the player
+  if (offlineMode && offlineMatch) {
+    const me = offlineMatch.roster.find((p) => p.id === myId);
+    if (me) {
+      const dist = Math.hypot(me.x - ex, me.z - ez);
+      if (dist < GRENADE_RADIUS * 2) {
+        yaw += (Math.random() - 0.5) * 0.15 * Math.max(0, 1 - dist / GRENADE_RADIUS);
+        pitch += (Math.random() - 0.5) * 0.08 * Math.max(0, 1 - dist / GRENADE_RADIUS);
+      }
+    }
+  }
+
+  // AOE damage
+  if (offlineMode && offlineMatch) {
+    for (const p of offlineMatch.roster) {
+      if (!p.alive) continue;
+      const dist = Math.hypot(p.x - ex, p.z - ez);
+      if (dist > GRENADE_RADIUS) continue;
+      const falloff = 1 - (dist / GRENADE_RADIUS);
+      const dmg = Math.round(80 * falloff + 20);
+      applyShot(p, dmg, g.ownerId, now);
+      if (g.ownerId === myId) spawnDmgNum(p.x, p.y + 2, p.z, dmg);
+    }
+  }
+
+  ensureAudio();
+  gunVoice('sawtooth', 80, 25, 0.5, 0.4);
+  setTimeout(() => gunVoice('square', 45, 20, 0.35, 0.35), 50);
+}
+
+function updateGrenades(dt, now) {
+  for (let i = liveGrenades.length - 1; i >= 0; i--) {
+    const g = liveGrenades[i];
+    // Fuse expired
+    if (now >= g.fuseAt) {
+      explodeGrenade(g, now);
+      liveGrenades.splice(i, 1);
+      continue;
+    }
+    // Gravity
+    g.vy -= GRENADE_GRAVITY * dt;
+    const nx = g.x + g.vx * dt;
+    const ny = g.y + g.vy * dt;
+    const nz = g.z + g.vz * dt;
+
+    // Wall bounce via castWalls
+    const dx = nx - g.x, dy = ny - g.y, dz = nz - g.z;
+    const dist = Math.hypot(dx, dy, dz);
+    if (dist > 0.01) {
+      const tWall = castWalls(g.x, g.y, g.z, dx / dist, dy / dist, dz / dist, dist + 0.1);
+      if (tWall < dist + 0.05) {
+        // Bounce — reflect velocity off wall normal (approximate)
+        const hitX = g.x + (dx / dist) * tWall;
+        const hitZ = g.z + (dz / dist) * tWall;
+        let nx2 = 0, nz2 = 0;
+        let bestDot = -1;
+        for (const w of WALLS) {
+          const cx = Math.max(w.minX, Math.min(hitX, w.maxX));
+          const cz = Math.max(w.minZ, Math.min(hitZ, w.maxZ));
+          const ddx = hitX - cx, ddz = hitZ - cz;
+          const d = Math.hypot(ddx, ddz);
+          if (d < 0.5) {
+            if (d < 0.01) { nx2 = 1; break; }
+            const dot = (dx * ddx + dz * ddz) / (dist * d);
+            if (dot < bestDot) { bestDot = dot; nx2 = ddx / d; nz2 = ddz / d; }
+          }
+        }
+        if (nx2 !== 0 || nz2 !== 0) {
+          const dotVN = g.vx * nx2 + g.vz * nz2;
+          g.vx -= 2 * dotVN * nx2 * 0.6;
+          g.vz -= 2 * dotVN * nz2 * 0.6;
+        }
+        g.x = hitX; g.z = hitZ;
+        g.vy = Math.abs(g.vy) * 0.5;
+        g.bounced = true;
+      } else {
+        g.x = nx; g.z = nz;
+      }
+    }
+
+    // Ground bounce
+    if (ny <= 0) {
+      g.y = 0;
+      g.vy = Math.abs(g.vy) * 0.4;
+      g.vx *= 0.75;
+      g.vz *= 0.75;
+      g.bounced = true;
+    } else {
+      g.y = ny;
+    }
+
+    // Sync mesh
+    if (g.mesh) {
+      g.mesh.position.set(g.x, g.y, g.z);
+      g.mesh.rotation.x += dt * 4;
+      g.mesh.rotation.z += dt * 3;
+    }
+  }
+}
+
 
 function flashEntityById(id) {
   const mesh = remoteMeshes.get(id);
@@ -1644,6 +1841,11 @@ function updateHud(state) {
       : `${W.name} · ${W.mag < 0 ? '∞' : String(Math.max(0, me.ammo)).padStart(2, '0')}`;
     els.weapon.classList.toggle('gold', me.weapon === 'gold');
   }
+  if (els.nadeCount) {
+    const n = me.grenades || 0;
+    els.nadeCount.style.display = n > 0 ? 'block' : 'none';
+    els.nadeNum.textContent = n;
+  }
 
   if (state.pickups) netPickups = state.pickups;
 
@@ -1739,6 +1941,7 @@ function makeEntity(id, name, agentId, spawnIndex, bot = false) {
     armor: 0,
     lastKillAt: 0,
     streak: 0,
+    grenades: 0,
   };
 }
 
@@ -1751,6 +1954,8 @@ function resetOfflineMatch() {
   offlineMatch.endsAt = Date.now() + (offlineMatch.mode === 'l2t' ? 120000 : 180000);
   offlineMatch.killFeed = [];
   offlineMatch.ended = false;
+  for (const g of liveGrenades) { if (g.mesh) scene.remove(g.mesh); }
+  liveGrenades.length = 0;
   for (const p of offlineMatch.roster) {
     const s = SPAWNS[p.spawnIndex % SPAWNS.length];
     Object.assign(p, {
@@ -1775,6 +1980,7 @@ function resetOfflineMatch() {
       armor: 0,
       lastKillAt: 0,
       streak: 0,
+      grenades: 0,
     });
   }
   resetPads();
@@ -1807,6 +2013,7 @@ function startOffline(name) {
     me.lives = 2;
     for (const b of bots) b.lives = 2;
   }
+  for (const b of bots) b.grenades = 2;
   matchStartedAt = Date.now() + 2800; // countdown freeze: nobody fires until GO
   yaw = me.yaw;
   pitch = 0;
@@ -2117,6 +2324,9 @@ function updateBots(dt, now) {
       const rate = W.auto ? 0.8 + closeBonus * 0.9 : 0.5 + closeBonus * 0.5;
       if (Math.random() < rate * dt) applyShot(bot, now);
     }
+    if ((bot.grenades || 0) > 0 && reacted && dist < 16 && dist > 4 && Math.random() < 0.15 * dt) {
+      throwGrenade(bot);
+    }
   }
 }
 
@@ -2168,6 +2378,7 @@ function offlineTick(dt) {
       p.ammo = -1;
       p.reloadingUntil = 0;
       p.armor = 0;
+      p.grenades = 0;
       if (p.lives <= 0) p.lives = 3;
       if (p.id === myId) {
         mountViewmodel('raygun');
@@ -2559,6 +2770,12 @@ addEventListener('keydown', (e) => {
       ws.send(JSON.stringify({ type: 'reload' }));
     }
   }
+  if (e.code === 'KeyG' && inMatch()) {
+    if (offlineMode && offlineMatch) {
+      const me = offlineMatch.roster.find((p) => p.id === myId);
+      if (me?.alive) throwGrenade(me);
+    }
+  }
 });
 
 addEventListener('keyup', (e) => {
@@ -2824,6 +3041,18 @@ window.SKULL_DEBUG = {
     matchSkipCountdown = !!v;
     return matchSkipCountdown;
   },
+  throwNade() {
+    const me = offlineMatch && offlineMatch.roster.find((p) => p.id === myId);
+    if (!me || !me.alive) return false;
+    throwGrenade(me);
+    return true;
+  },
+  giveNade(n = 4) {
+    const me = offlineMatch && offlineMatch.roster.find((p) => p.id === myId);
+    if (!me) return false;
+    me.grenades = Math.min(GRENADE_MAX, (me.grenades || 0) + n);
+    return me.grenades;
+  },
   debugShotInfo(tx, tz) {
     const me = offlineMatch && offlineMatch.roster.find((p) => p.id === myId);
     const bot = offlineMatch && offlineMatch.roster.filter((p) => p.bot)[0];
@@ -2981,6 +3210,7 @@ function tick() {
   updateBolts(dt);
   updateTracers();
   updateGoos(dt);
+  updateGrenades(dt, Date.now());
 
   // Low-HP heartbeat — skull agents have feelings too
   if (offlineMode && offlineMatch) {
