@@ -49,14 +49,14 @@ let matchStartedAt = 0;
 
 /** Viewmodel mounting per weapon — guns authored muzzle-forward (-Z after glTF). */
 const VIEWMODEL = {
-  pp7: { model: 'pp7', pos: [0.22, -0.24, -0.4], scale: 1.15 },
+  raygun: { model: 'raygun', pos: [0.22, -0.18, -0.38], scale: 0.42 },
   klobber: { model: 'klobber', pos: [0.24, -0.26, -0.44], scale: 1.05 },
   dd: { model: 'ddskull', pos: [0.22, -0.24, -0.42], scale: 1.2 },
   kf7: { model: 'kf7', pos: [0.2, -0.28, -0.48], scale: 1.25 },
   gold: { model: 'golden', pos: [0.22, -0.22, -0.4], scale: 1.25 },
 };
 
-let netWeapon = 'pp7';
+let netWeapon = 'raygun';
 let netAmmo = -1;
 let netPickups = [];
 
@@ -384,14 +384,14 @@ function fallbackGun() {
 function currentWeaponId() {
   if (offlineMode && offlineMatch) {
     const me = offlineMatch.roster.find((p) => p.id === myId);
-    return me ? me.weapon : 'pp7';
+    return me ? me.weapon : 'raygun';
   }
   return netWeapon;
 }
 
-function mountViewmodel(weaponId = 'pp7') {
+function mountViewmodel(weaponId = 'raygun') {
   while (gunGroup.children.length) gunGroup.remove(gunGroup.children[0]);
-  const cfg = VIEWMODEL[weaponId] || VIEWMODEL.pp7;
+  const cfg = VIEWMODEL[weaponId] || VIEWMODEL.raygun;
   const src = models[cfg.model] || models.raygun;
   if (!src) {
     fallbackGun();
@@ -414,7 +414,6 @@ function mountViewmodel(weaponId = 'pp7') {
   gunGroup.add(muzzleFlash);
 }
 
-// Legacy alias — raygun viewmodel is just the pp7 slot now
 function mountRaygun() {
   mountViewmodel(currentWeaponId());
 }
@@ -432,7 +431,6 @@ async function loadGameAssets() {
   const urls = {
     agent: '/assets/models/skullpepe.glb',
     raygun: '/assets/models/raygun.glb',
-    pp7: '/assets/models/raygun.glb',
     klobber: '/assets/models/klobber.glb',
     ddskull: '/assets/models/ddskull.glb',
     kf7: '/assets/models/kf7.glb',
@@ -925,7 +923,7 @@ function decorateMapProps() {
   }
 }
 
-const MODEL_FOR_GUN = { pp7: 'pp7', klobber: 'klobber', dd: 'ddskull', kf7: 'kf7', gold: 'golden' };
+const MODEL_FOR_GUN = { raygun: 'raygun', klobber: 'klobber', dd: 'ddskull', kf7: 'kf7', gold: 'golden' };
 
 function buildPads() {
   pads = (PAD_SPOTS[selectedMapId] || []).map((s, i) => ({
@@ -1190,11 +1188,11 @@ function flashEntityById(id) {
 }
 
 function spendGolden(e) {
-  e.weapon = 'pp7';
+  e.weapon = 'raygun';
   e.ammo = -1;
   e.reloadingUntil = 0;
   if (e.id === myId) {
-    mountViewmodel('pp7');
+    mountViewmodel('raygun');
     showCenter('GOLDEN SKULLGUN SPENT', 1300);
   } else {
     pushFeed(`${e.name} BURNED THE GOLD`);
@@ -1695,7 +1693,7 @@ function makeEntity(id, name, agentId, spawnIndex, bot = false) {
     spawnShieldUntil: Date.now() + 1500,
     spawnIndex,
     bot,
-    weapon: 'pp7',
+    weapon: 'raygun',
     ammo: -1,
     reloadingUntil: 0,
     armor: 0,
@@ -1731,7 +1729,7 @@ function resetOfflineMatch() {
       alive: true,
       respawnAt: 0,
       spawnShieldUntil: Date.now() + 1500,
-      weapon: 'pp7',
+      weapon: 'raygun',
       ammo: -1,
       reloadingUntil: 0,
       armor: 0,
@@ -1740,7 +1738,7 @@ function resetOfflineMatch() {
     });
   }
   resetPads();
-  if (offlineMode) mountViewmodel('pp7');
+  if (offlineMode) mountViewmodel('raygun');
   const me = offlineMatch.roster.find((p) => p.id === myId);
   if (me) {
     yaw = me.yaw;
@@ -2125,14 +2123,14 @@ function offlineTick(dt) {
       p.respawnAt = 0;
       // Spawn protection — breathe, find cover, then fight
       p.spawnShieldUntil = now + 1500;
-      // GE rules: death strips specials back to the trusty PP7
-      p.weapon = 'pp7';
+      // GE rules: death strips specials back to the trusty RAY GUN
+      p.weapon = 'raygun';
       p.ammo = -1;
       p.reloadingUntil = 0;
       p.armor = 0;
       if (p.lives <= 0) p.lives = 3;
       if (p.id === myId) {
-        mountViewmodel('pp7');
+        mountViewmodel('raygun');
         yaw = p.yaw;
         pitch = 0;
         camera.position.set(p.x, p.y, p.z);
@@ -2256,11 +2254,11 @@ function connect(name) {
       myId = msg.id;
       matchStartedAt = Date.now();
       netPickups = [];
-      netWeapon = 'pp7';
+      netWeapon = 'raygun';
       netAmmo = -1;
       if (msg.mapId) loadSelectedMap(msg.mapId);
       else loadSelectedMap(selectedMapId);
-      mountViewmodel('pp7');
+      mountViewmodel('raygun');
       const mine = getAgent(selectedAgentId);
       if (agentTag) agentTag.textContent = `#${String(mine.slot).padStart(2, '0')} ${mine.name}`;
       beginMission(`${mine.name} — ${getMap(selectedMapId).name}`);
@@ -2270,7 +2268,7 @@ function connect(name) {
       syncRemotes(msg.players);
       const me = msg.players.find((p) => p.id === myId);
       if (me) {
-        const wid = me.weapon || 'pp7';
+        const wid = me.weapon || 'raygun';
         if (wid !== netWeapon) {
           netWeapon = wid;
           netAmmo = me.ammo != null ? me.ammo : -1;

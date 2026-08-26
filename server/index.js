@@ -23,7 +23,7 @@ const MAP_DEFS = {
 
 // ===== Arsenal — keep in sync with public/js/weapons.js =====
 const WEAPONS = {
-  pp7: { name: 'RAY GUN', dmg: 40, cd: 200, mag: -1, reloadMs: 0, spread: 0, auto: true, range: 70, oneShot: false },
+  raygun: { name: 'RAY GUN', dmg: 40, cd: 200, mag: -1, reloadMs: 0, spread: 0, auto: true, range: 70, oneShot: false },
   klobber: { name: 'KLOBBER', dmg: 24, cd: 120, mag: 70, reloadMs: 1400, spread: 0.03, auto: true, range: 60, oneShot: false },
   dd: { name: 'DD SKULL', dmg: 72, cd: 470, mag: 21, reloadMs: 1600, spread: 0.006, auto: false, range: 80, oneShot: false },
   kf7: { name: 'KF7 SKULLETV', dmg: 36, cd: 150, mag: 90, reloadMs: 2000, spread: 0.016, auto: true, range: 75, oneShot: false },
@@ -202,7 +202,7 @@ function spawnPlayer(id, name, agentId) {
     spawnShieldUntil: Date.now() + 1500,
     spawnIndex,
     connected: true,
-    weapon: 'pp7',
+    weapon: 'raygun',
     ammo: -1,
     reloadUntil: 0,
     armor: 0,
@@ -314,7 +314,7 @@ function resetMatch() {
     p.alive = true;
     p.respawnAt = 0;
     p.spawnShieldUntil = Date.now() + 1500;
-    p.weapon = 'pp7';
+    p.weapon = 'raygun';
     p.ammo = -1;
     p.reloadUntil = 0;
     p.armor = 0;
@@ -388,7 +388,7 @@ function castWallsServer(ox, oy, oz, dx, dy, dz, maxDist) {
 }
 
 function startReload(p, now) {
-  const W = WEAPONS[p.weapon] || WEAPONS.pp7;
+  const W = WEAPONS[p.weapon] || WEAPONS.raygun;
   if (W.mag < 0 || p.reloadUntil || p.ammo === W.mag) return false;
   p.reloadUntil = now + W.reloadMs;
   return true;
@@ -397,12 +397,12 @@ function startReload(p, now) {
 function finishReloadIfDue(p, now) {
   if (p.reloadUntil && now >= p.reloadUntil) {
     p.reloadUntil = 0;
-    p.ammo = (WEAPONS[p.weapon] || WEAPONS.pp7).mag;
+    p.ammo = (WEAPONS[p.weapon] || WEAPONS.raygun).mag;
   }
 }
 
 function spendGolden(p) {
-  p.weapon = 'pp7';
+  p.weapon = 'raygun';
   p.ammo = -1;
   p.reloadUntil = 0;
   pushFeed(`${p.name} BURNED THE GOLD`);
@@ -421,7 +421,7 @@ function tryShoot(shooter, click) {
   if (!shooter.alive) return;
   finishReloadIfDue(shooter, now);
   if (shooter.reloadUntil) return;
-  const W = WEAPONS[shooter.weapon] || WEAPONS.pp7;
+  const W = WEAPONS[shooter.weapon] || WEAPONS.raygun;
   if (!W.auto && !click) return;
   if (now - shooter.lastShot < W.cd) return;
   if (W.mag >= 0 && shooter.ammo <= 0) {
@@ -649,8 +649,8 @@ setInterval(() => {
       p.alive = true;
       p.respawnAt = 0;
       p.spawnShieldUntil = now + 1500; // spawn protection
-      // Death strips specials back to the trusty PP7
-      p.weapon = 'pp7';
+      // Death strips specials back to the trusty RAY GUN
+      p.weapon = 'raygun';
       p.ammo = -1;
       p.reloadUntil = 0;
       p.armor = 0;
@@ -676,7 +676,7 @@ setInterval(() => {
         }
       } else {
         p.weapon = pad.w;
-        p.ammo = (WEAPONS[pad.w] || WEAPONS.pp7).mag;
+        p.ammo = (WEAPONS[pad.w] || WEAPONS.raygun).mag;
         p.reloadUntil = 0;
         took = true;
       }

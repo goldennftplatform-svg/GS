@@ -1,6 +1,6 @@
 /** SKULLBOND arsenal — homage stats tuned against the GE decomp meta. Shared by viewmodel/HUD/offline sim. */
 export const WEAPONS = {
-  pp7: {
+  raygun: {
     name: 'RAY GUN',
     dmg: 40,
     cd: 200,
@@ -81,8 +81,9 @@ export const WEAPONS = {
 export const GOLD_SHOTS = 5;
 
 /** Bot pickup preference — never downgrade. */
-export const GUN_RANK = { gold: 9, kf7: 3, dd: 2, pp7: 1, klobber: 0 };
+export const GUN_RANK = { gold: 9, kf7: 3, dd: 2, raygun: 1, klobber: 0 };
 
 export function getWeapon(id) {
-  return WEAPONS[id] || WEAPONS.pp7;
+  return WEAPONS[id] || WEAPONS.raygun;
 }
+
