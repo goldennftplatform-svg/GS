@@ -1,6 +1,6 @@
 const WebSocket = require('ws');
 
-const ws = new WebSocket('ws://localhost:3000/ws');
+const ws = new WebSocket(process.env.SKULLBOND_WS || 'ws://localhost:3000/ws');
 let lastPosition = null;
 let routeStage = -1;
 let moveTimer = null;
