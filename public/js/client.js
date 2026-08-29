@@ -1566,6 +1566,34 @@ function rankTitle(kills) {
   return 'TRAINEE';
 }
 
+function makePlayerTag(name, color) {
+  const tag = document.createElement('canvas');
+  tag.width = 512;
+  tag.height = 96;
+  const ctx = tag.getContext('2d');
+  ctx.fillStyle = 'rgba(5, 10, 6, 0.82)';
+  ctx.fillRect(0, 8, tag.width, 80);
+  ctx.strokeStyle = color || '#6baf6e';
+  ctx.lineWidth = 8;
+  ctx.strokeRect(4, 12, tag.width - 8, 72);
+  ctx.fillStyle = '#fff2b3';
+  ctx.font = 'bold 38px monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(String(name || 'AGENT').slice(0, 16), tag.width / 2, tag.height / 2);
+  const texture = new THREE.CanvasTexture(tag);
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: texture,
+    transparent: true,
+    depthTest: false,
+    depthWrite: false,
+  }));
+  sprite.position.y = 2.65;
+  sprite.scale.set(3.2, 0.6, 1);
+  sprite.renderOrder = 100;
+  return sprite;
+}
+
 function syncRemotes(list) {
   const seen = new Set();
   for (const p of list) {
@@ -1579,6 +1607,7 @@ function syncRemotes(list) {
     if (!mesh) {
       const agent = getAgent(p.agentId || 'skullpepe');
       mesh = makeAgentMesh({ ...agent, color: p.color || agent.color });
+      mesh.add(makePlayerTag(p.name, p.color || agent.color));
       remoteMeshes.set(p.id, mesh);
       scene.add(mesh);
     }
@@ -1786,6 +1815,17 @@ function spawnTracer(origin, dir, dist = 48, color = 0x9dff9a) {
   beam.quaternion.setFromUnitVectors(_yAxis, dir);
   scene.add(beam);
   tracers.push({ mesh: beam, born: performance.now(), ttl: 140 });
+}
+
+function spawnNetworkTracer(originData, impactData, weaponId) {
+  const origin = new THREE.Vector3(originData.x, originData.y, originData.z);
+  const impact = new THREE.Vector3(impactData.x, impactData.y, impactData.z);
+  const dir = impact.sub(origin);
+  const dist = dir.length();
+  if (dist < 0.01) return;
+  dir.multiplyScalar(1 / dist);
+  spawnTracer(origin, dir, dist, getWeapon(weaponId || 'raygun').tracer);
+  spawnBolt(origin, dir.clone(), 'remote', getWeapon(weaponId || 'raygun').boltColor, 0.055);
 }
 
 function updateTracers() {  for (let i = tracers.length - 1; i >= 0; i--) {
@@ -2676,7 +2716,7 @@ function connect(name) {
       return;
     }
     if (msg.type === 'shot') {
-      if (msg.from !== myId) spawnTracer(msg.origin, msg.impact);
+      if (msg.from !== myId) spawnNetworkTracer(msg.origin, msg.impact, msg.weapon);
       else flashMuzzle();
       if (msg.hit) {
         flashEntityById(msg.hit);
@@ -3095,6 +3135,9 @@ window.SKULL_DEBUG = {
       weapon: currentWeaponId(),
       offline: !!offlineMode,
       alive: localAlive,
+      onlinePlayers: players.size,
+      remoteBodies: remoteMeshes.size,
+      liveTracers: tracers.length,
     };
   },
   stats() {

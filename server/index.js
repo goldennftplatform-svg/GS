@@ -602,6 +602,7 @@ function tryShoot(shooter, click) {
   broadcast({
     type: 'shot',
     from: shooter.id,
+    weapon: shooter.weapon,
     origin: { x: shooter.x, y: shooter.y, z: shooter.z },
     impact,
     hit: best ? best.id : null,
