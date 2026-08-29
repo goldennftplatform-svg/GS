@@ -44,8 +44,10 @@ html, body {
   inset: 0;
   z-index: 20;
   background:
-    radial-gradient(ellipse at 30% 20%, rgba(107,175,110,0.25), transparent 50%),
-    linear-gradient(160deg, var(--paper), #d9c98a 60%, #c4b06a);
+    radial-gradient(circle at 12% 18%, rgba(46,110,62,0.16) 0 2px, transparent 3px),
+    radial-gradient(circle at 86% 78%, rgba(46,110,62,0.14) 0 3px, transparent 4px),
+    linear-gradient(155deg, #fff3bf, #eadb9f 72%, #d3bd72);
+  background-size: auto, 28px 28px, auto;
   display: flex;
   flex-direction: column;
   overflow: auto;
@@ -54,37 +56,39 @@ html, body {
 .boot-inner {
   flex: 1;
   display: grid;
-  grid-template-columns: 1.1fr 1fr;
-  gap: 2rem;
+  grid-template-columns: minmax(280px, 0.9fr) minmax(320px, 1fr);
+  gap: clamp(2rem, 6vw, 5rem);
   align-items: center;
   padding: 2rem 3rem;
-  max-width: 1200px;
+  max-width: 1320px;
   margin: 0 auto;
   width: 100%;
 }
 
 .boot-fps .boot-hero-art {
   position: relative;
+  width: min(100%, 520px);
+  justify-self: end;
 }
 
 .boot-art {
   width: 100%;
-  max-height: 62vh;
-  object-fit: cover;
-  object-position: 40% 15%;
-  border: 3px solid #111;
-  filter: drop-shadow(0 18px 30px rgba(0,0,0,0.35));
-  background: #111;
+  max-height: 78vh;
+  object-fit: contain;
+  border: 4px solid #111;
+  filter: saturate(0.96) drop-shadow(16px 20px 0 rgba(15, 28, 17, 0.28));
+  background: var(--cream);
 }
 
 .boot-badge {
   position: absolute;
-  left: 0.75rem;
+  left: auto;
+  right: -0.65rem;
   bottom: 0.75rem;
   font-family: "Press Start 2P", monospace;
   font-size: 9px;
-  background: var(--green);
-  color: #081208;
+  background: #111;
+  color: var(--cream);
   border: 2px solid #111;
   padding: 0.45rem 0.6rem;
 }
@@ -133,12 +137,12 @@ html, body {
 .boot-copy .tag {
   margin-top: 0.7rem;
   font-size: 1.15rem;
-  color: var(--brown);
+  color: var(--green-dark);
 }
 
 .boot-copy .blurb {
   margin: 1rem 0 1.4rem;
-  max-width: 34ch;
+  max-width: 38ch;
   font-family: Georgia, "Times New Roman", serif;
   font-size: 1.05rem;
   line-height: 1.45;
@@ -159,7 +163,7 @@ html, body {
   font-size: 1.2rem;
   padding: 0.7rem 0.9rem;
   border: 3px solid #111;
-  background: var(--cream);
+  background: rgba(255, 248, 207, 0.88);
   outline: none;
   max-width: 280px;
 }
@@ -818,7 +822,6 @@ html, body {
 @media (max-width: 860px) {
   .boot-inner { grid-template-columns: 1fr; padding: 1.25rem; }
   .boot-art { max-height: 36vh; }
-  .boot-strip { display: none; }
   .select-wrap { grid-template-columns: 1fr; }
   .select-grid { grid-template-columns: repeat(2, 1fr); }
   .map-row { grid-template-columns: repeat(2, 1fr); }
@@ -875,46 +878,6 @@ html, body {
 #modeBtn { font-size: 10px; padding: 0.7rem 1rem; }
 #centerMsg.big { font-size: 18px; color: var(--red); text-shadow: 2px 2px 0 #000, 0 0 14px rgba(229,57,45,0.6); }
 
-/* --- ART DOCK: the actual pitch bible, in the UI where it belongs --- */
-.boot-strip {
-  width: 100%;
-  margin-top: 10px;
-  border: 3px solid #0a0a0a;
-  image-rendering: auto;
-}
-.art-dock {
-  width: min(920px, 92vw);
-  margin: 14px auto 0;
-}
-.art-tabs {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.art-tab {
-  font-family: 'Press Start 2P', monospace;
-  font-size: 10px;
-  letter-spacing: 1px;
-  padding: 8px 12px;
-  background: #11150f;
-  color: #fff2b3;
-  border: 2px solid #2e6e3e;
-  cursor: pointer;
-}
-.art-tab:hover { border-color: #6baf6e; }
-.art-tab.active {
-  background: #6baf6e;
-  color: #0a0a0a;
-}
-.art-img {
-  width: 100%;
-  max-height: 250px;
-  object-fit: contain;
-  background: #0a0a0a;
-  border: 3px solid #0a0a0a;
-  margin-top: 8px;
-}
-
 /* --- CRITICAL-HEALTH PULSE --- */
 #damageVignette.crit {
   animation: critPulse 0.85s ease-in-out infinite;
@@ -924,4 +887,116 @@ html, body {
 @keyframes critPulse {
   0%, 100% { box-shadow: inset 0 0 90px rgba(220, 40, 40, 0); }
   50%      { box-shadow: inset 0 0 90px rgba(220, 40, 40, 0.85); }
+}
+
+/* Character-first onboarding */
+#selectScreen {
+  background:
+    radial-gradient(ellipse at 75% 0%, rgba(107,175,110,0.22), transparent 42%),
+    linear-gradient(165deg, #fff3bd 0%, #ead99a 58%, #cdb76c 100%);
+  color: var(--ink);
+}
+
+.select-wrap {
+  grid-template-columns: minmax(0, 1.5fr) minmax(320px, 0.72fr);
+  gap: clamp(1rem, 2vw, 1.75rem);
+  padding: 1.25rem clamp(1rem, 3vw, 2.5rem) 2rem;
+  max-width: 1440px;
+}
+
+.select-head .eyebrow { color: var(--green-dark); }
+.select-sub { color: #3f472f; opacity: 1; }
+
+.map-card {
+  border-color: #263526;
+  background: rgba(255, 244, 188, 0.58);
+  color: #111;
+}
+
+.map-card.selected {
+  border-color: #111;
+  background: var(--green-dark);
+  color: var(--cream);
+  box-shadow: 4px 4px 0 #111;
+}
+
+.select-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(0.5rem, 1.2vw, 0.85rem);
+}
+
+.agent-card {
+  border-color: #111;
+  background: var(--cream);
+}
+
+.agent-card::before { width: 7px; }
+
+.agent-card:hover {
+  transform: translate(-3px, -3px);
+  box-shadow: 6px 6px 0 #111;
+}
+
+.agent-card.selected {
+  border-color: var(--agent-clr, var(--green-dark));
+  box-shadow: 7px 7px 0 #111;
+  transform: translate(-3px, -3px);
+  animation: none;
+}
+
+.agent-card .thumb {
+  height: auto;
+  aspect-ratio: 3 / 4;
+  background-size: cover;
+  border: 0;
+}
+
+.agent-card .meta {
+  position: absolute;
+  left: 0.5rem;
+  top: 0.5rem;
+  padding: 0.35rem 0.45rem;
+  background: #111;
+  border: 1px solid var(--agent-clr, var(--green));
+}
+
+.agent-card .slot { margin: 0; }
+.agent-card .name,
+.agent-card .code { display: none; }
+
+.select-dossier {
+  border: 4px solid #111;
+  background: rgba(255, 245, 196, 0.92);
+  box-shadow: 10px 10px 0 rgba(17,17,17,0.9);
+}
+
+.dossier-art {
+  height: min(52vh, 560px);
+  min-height: 320px;
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center top;
+  background-color: #f8e9ae;
+  border-bottom-color: #111;
+}
+
+.dossier-art::after {
+  height: 20px;
+  background: linear-gradient(transparent, rgba(17,17,17,0.12));
+}
+
+.dossier-code,
+.dossier-tip { color: var(--green-dark); }
+.dossier-lore { color: #32382b; opacity: 1; }
+.dossier-stats { color: #111; }
+.stat-bar-bg { background: #d7c88f; border-color: #111; }
+#selectScreen .status { color: #9f1e17; }
+
+@media (max-width: 860px) {
+  .boot-fps .boot-hero-art { justify-self: center; width: min(72vw, 380px); }
+  .boot-art { max-height: 42vh; }
+  .boot-badge { right: -0.25rem; }
+  .select-wrap { grid-template-columns: 1fr; }
+  .select-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dossier-art { height: 52vh; min-height: 300px; }
 }

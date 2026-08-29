@@ -135,12 +135,12 @@ function applyMap(id) {
 }
 
 const AGENTS = {
-  skullpepe: { name: 'SKULL PEPE', color: '#6BAF6E', speedMul: 1.08, hpMul: 1.0 },
-  daisy: { name: 'DAISY SKULL', color: '#E5392D', speedMul: 1.0, hpMul: 0.95 },
-  mini: { name: 'MINI MOHAWK', color: '#2E6E3E', speedMul: 1.2, hpMul: 0.8 },
-  boss: { name: 'BOSS MARKER', color: '#B56A4D', speedMul: 0.88, hpMul: 1.35 },
-  drone: { name: 'RAY DRONE', color: '#8E8E8E', speedMul: 1.05, hpMul: 0.9 },
-  hazard: { name: 'AGENT HAZARD', color: '#FFF2B3', speedMul: 1.02, hpMul: 1.05 },
+  skullpepe: { name: 'OG SKULL PEPE', color: '#6BAF6E', speedMul: 1.08, hpMul: 1.0 },
+  daisy: { name: 'DAISY SKULL PEPE', color: '#5D9B62', speedMul: 1.0, hpMul: 0.95 },
+  mini: { name: 'PUNK SPIKE PEPE', color: '#E5392D', speedMul: 1.2, hpMul: 0.8 },
+  boss: { name: 'COURIER BAG PEPE', color: '#B56A4D', speedMul: 0.88, hpMul: 1.35 },
+  drone: { name: 'TECH RAY PEPE', color: '#8E8E8E', speedMul: 1.05, hpMul: 0.9 },
+  hazard: { name: 'HAZARD PEPE', color: '#F1C52A', speedMul: 1.02, hpMul: 1.05 },
 };
 
 const app = express();

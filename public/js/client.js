@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 // Build-stamped imports — bump these versions so browsers drop stale modules
-import { AGENTS, getAgent, statBar } from './roster.js?v=20260825c';
+import { AGENTS, getAgent, statBar } from './roster.js?v=20260829a';
 import { MAPS, getMap, buildMapById, bindThree, PAD_SPOTS, GOLD_SPOTS } from './maps.js?v=20260829a';
 import { WEAPONS, GOLD_SHOTS, GUN_RANK, getWeapon } from './weapons.js?v=20260825c';
 import { BRAND } from './brand.js?v=20260825c';
@@ -2856,16 +2856,6 @@ toSelectBtn?.addEventListener('click', () => {
   selectScreen.classList.remove('hidden');
   buildMapSelect();
   buildAgentSelect();
-});
-
-// Art dock tabs — flip through the actual pitch bible
-document.querySelectorAll('.art-tab').forEach((btn) => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.art-tab').forEach((b) => b.classList.remove('active'));
-    btn.classList.add('active');
-    const img = document.getElementById('artImg');
-    if (img) img.src = `/assets/${btn.dataset.art}.png`;
-  });
 });
 
 backBoot?.addEventListener('click', () => {

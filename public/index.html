@@ -15,28 +15,27 @@
     <div class="check-top"></div>
     <div class="boot-inner boot-fps">
       <div class="boot-hero-art">
-        <img class="boot-art" src="/assets/style-sheet.png" alt="SKULL PEPE — RAY GUN" />
-        <img class="boot-strip" src="/assets/characters.png" alt="THE CREW" />
-        <div class="boot-badge">4-PLAYER · 5 ARENAS · RADAR</div>
+        <img class="boot-art" src="/assets/agents/og-skull-pepe.webp" alt="OG Skull Pepe holding the Ray Gun" />
+        <div class="boot-badge">CLOUD DEATHMATCH // 4 PLAYERS</div>
       </div>
       <div class="boot-copy">
-        <p class="eyebrow">NSES BOND // CLASSIFIED</p>
+        <p class="eyebrow">STEP 01 // IDENTIFY</p>
         <h1>SKULL<span>BOND</span></h1>
-        <p class="tag">FIRST PERSON. FIXED AGENTS. NO COVER.</p>
+        <p class="tag">PICK A PEPE. ENTER THE ARENA.</p>
         <p class="blurb">
-          GoldenEye-class deathmatch across five arenas. Pick an operative,
-          lock the RAY GUN, and read the radar.
+          Fast four-player firefights across five hostile arenas. Choose your
+          callsign, lock an agent, and join the live match.
         </p>
         <ul class="boot-bullets">
-          <li>5 maps · weapon pads · armor · GRENADES · GOLDEN SKULLGUN</li>
-          <li>6 fixed agents · 4 players max · radar HUD</li>
-          <li>WASD · mouse look · LMB fire · RMB aim · R reload · G grenade</li>
+          <li>ONLINE · UP TO 4 PLAYERS · LIVE RADAR</li>
+          <li>5 ARENAS · WEAPON PADS · GOLDEN SKULLGUN</li>
+          <li>WASD MOVE · MOUSE AIM · LMB FIRE · G GRENADE</li>
         </ul>
         <label class="name-field">
           CALLSIGN
           <input id="nameInput" maxlength="16" placeholder="AGENT ZERO" autocomplete="off" />
         </label>
-        <button id="toSelectBtn" class="cta">SELECT AGENT →</button>
+        <button id="toSelectBtn" class="cta">BUILD LOADOUT →</button>
         <p id="bootStatus" class="status"></p>
       </div>
     </div>
@@ -47,22 +46,10 @@
     <div class="check-top"></div>
     <div class="select-wrap">
       <header class="select-head">
-        <p class="eyebrow">NSES ROSTER // FIXED OPERATIVES</p>
-        <h2>SELECT YOUR AGENT</h2>
-        <p class="select-sub">Pick your agent and arena. Radar on. No mid-match swaps.</p>
+        <p class="eyebrow">STEP 02 // BUILD LOADOUT</p>
+        <h2>CHOOSE YOUR PEPE</h2>
+        <p class="select-sub">Agent. Arena. Mode. Then deploy to the live match.</p>
       </header>
-
-      <div class="art-dock">
-        <div class="art-tabs">
-          <button class="art-tab active" data-art="pitch">PITCH</button>
-          <button class="art-tab" data-art="story">STORY</button>
-          <button class="art-tab" data-art="features">FEATURES</button>
-          <button class="art-tab" data-art="style-sheet">STYLE</button>
-          <button class="art-tab" data-art="concept-map">ARENAS</button>
-          <button class="art-tab" data-art="landing">POSTER</button>
-        </div>
-        <img id="artImg" class="art-img" src="/assets/pitch.png" alt="SKULLBOND ART" />
-      </div>
 
       <div class="map-row" id="mapGrid"></div>
 
@@ -80,7 +67,7 @@
           <p class="dossier-tip" id="dossierTip"></p>
           <div class="cta-row">
             <button id="modeBtn" class="cta cta-ghost">MODE: DEATHMATCH</button>
-            <button id="joinBtn" class="cta">ENTER ARENA</button>
+            <button id="joinBtn" class="cta">PLAY ONLINE</button>
             <button id="soloBtn" class="cta cta-alt">SOLO OPS</button>
             <button id="backBoot" class="cta cta-ghost">BACK</button>
           </div>
@@ -159,6 +146,6 @@
   }
   </script>
   <script type="module" src="/js/brand.js?v=20260824c"></script>
-  <script type="module" src="/js/client.js?v=20260829c"></script>
+  <script type="module" src="/js/client.js?v=20260829d"></script>
 </body>
 </html>
