@@ -56,17 +56,20 @@ const GUN_PADS = {
 };
 const GOLD_SPOTS = {
   stadium: [0, 0],
-  lunch: [0, 38],
+  lunch: [0, 0],
   starbucks: [0, 12],
-  megacorp: [0, -26],
+  megacorp: [0, 10],
   facility: [0, 0],
 };
 
 const FACILITY_SWITCHES = [[0, -28], [0, 28]];
-const FACILITY_VENTS = [
-  { x: -50, z: 0, toX: 46, toZ: 0 },
-  { x: 50, z: 0, toX: -46, toZ: 0 },
-];
+const MAP_SHORTCUTS = {
+  stadium: [{ x: 0, z: -47, toX: 0, toZ: 42 }, { x: 0, z: 47, toX: 0, toZ: -42 }],
+  lunch: [{ x: -42, z: 0, toX: 38, toZ: 0 }, { x: 42, z: 0, toX: -38, toZ: 0 }],
+  starbucks: [{ x: -37, z: -26, toX: 34, toZ: 26 }, { x: 37, z: 26, toX: -34, toZ: -26 }],
+  megacorp: [{ x: -45, z: 5, toX: 41, toZ: -5 }, { x: 45, z: -5, toX: -41, toZ: 5 }],
+  facility: [{ x: -50, z: 0, toX: 46, toZ: 0 }, { x: 50, z: 0, toX: -46, toZ: 0 }],
+};
 const FACILITY_REACTOR_RADIUS = 9;
 const facilityRuntime = { disabledUntil: 0, switchReadyAt: 0 };
 
@@ -141,6 +144,9 @@ const AGENTS = {
 };
 
 const app = express();
+app.get('/health', (_req, res) => {
+  res.json({ ok: true, players: players.size, map: mapId });
+});
 app.use(
   express.static(path.join(__dirname, '..', 'public'), {
     etag: true,
@@ -155,7 +161,7 @@ app.use(
 );
 
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server, path: '/ws' });
+const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 4096 });
 
 /** @type {Map<string, any>} */
 const players = new Map();
@@ -186,7 +192,10 @@ function spawnPlayer(id, name, agentId) {
   const maxHp = Math.round(PLAYER_HP * agent.hpMul);
   return {
     id,
-    name: (name || agent.name).slice(0, 16).toUpperCase(),
+    name: String(name || agent.name)
+      .replace(/[^a-z0-9 _-]/gi, '')
+      .slice(0, 16)
+      .toUpperCase() || agent.name,
     agentId: AGENTS[agentId] ? agentId : 'skullpepe',
     color: agent.color,
     speedMul: agent.speedMul,
@@ -435,6 +444,33 @@ function applyDamage(target, dmg, ignoreArmor) {
   target.hp -= dmg - absorbed;
 }
 
+function applyPlayerInput(p) {
+  const input = p.input;
+  p.shooting = false;
+  if (!p.alive || !input || Date.now() - input.at > 250) return;
+  p.yaw = input.yaw;
+  p.pitch = input.pitch;
+  const speed = (input.sprint ? 13.5 : 9.6) * (p.speedMul || 1);
+  let mx = 0;
+  let mz = 0;
+  if (input.f) mz -= 1;
+  if (input.b) mz += 1;
+  if (input.l) mx -= 1;
+  if (input.r) mx += 1;
+  if (mx || mz) {
+    const len = Math.hypot(mx, mz);
+    mx = (mx / len) * 1.12;
+    mz /= len;
+    moveWithColliders(
+      p,
+      (mx * Math.cos(p.yaw) + mz * Math.sin(p.yaw)) * speed * (TICK_MS / 1000),
+      (-mx * Math.sin(p.yaw) + mz * Math.cos(p.yaw)) * speed * (TICK_MS / 1000)
+    );
+  }
+  if (input.shoot) tryShoot(p, input.click);
+  input.click = false;
+}
+
 function facilityMode(now) {
   if (mapId !== 'facility' || !match.started || now < facilityRuntime.disabledUntil) return 0;
   const phase = Math.max(0, now - match.startedAt) % 12000;
@@ -469,21 +505,26 @@ function tickFacility(now) {
   const mode = facilityMode(now);
   for (const p of players.values()) {
     if (!p.alive) continue;
-    if (now >= (p.mapTeleportReadyAt || 0)) {
-      for (const vent of FACILITY_VENTS) {
-        if (Math.hypot(p.x - vent.x, p.z - vent.z) > 1.55) continue;
-        p.x = vent.toX;
-        p.z = vent.toZ;
-        p.mapTeleportReadyAt = now + 1400;
-        break;
-      }
-    }
     if (mode !== 2 || now < (p.mapHazardTickAt || 0)) continue;
     if (Math.hypot(p.x, p.z) > FACILITY_REACTOR_RADIUS) continue;
     if ((p.spawnShieldUntil || 0) > now) continue;
     p.mapHazardTickAt = now + 500;
     applyDamage(p, 14, true);
     if (p.hp <= 0) eliminateByEnvironment(p, now);
+  }
+}
+
+function tickMapShortcuts(now) {
+  const shortcuts = MAP_SHORTCUTS[mapId] || [];
+  for (const p of players.values()) {
+    if (!p.alive || now < (p.mapTeleportReadyAt || 0)) continue;
+    for (const shortcut of shortcuts) {
+      if (Math.hypot(p.x - shortcut.x, p.z - shortcut.z) > 1.55) continue;
+      p.x = shortcut.toX;
+      p.z = shortcut.toZ;
+      p.mapTeleportReadyAt = now + 1400;
+      break;
+    }
   }
 }
 
@@ -657,29 +698,18 @@ wss.on('connection', (ws) => {
       if (!p.alive) return;
       const yaw = Number(msg.yaw) || 0;
       const pitch = Math.max(-1.4, Math.min(1.4, Number(msg.pitch) || 0));
-      p.yaw = yaw;
-      p.pitch = pitch;
-      const dt = TICK_MS / 1000;
-
-      const speed = (msg.sprint ? 13.5 : 9.6) * (p.speedMul || 1);
-      let mx = 0;
-      let mz = 0;
-      if (msg.f) mz -= 1;
-      if (msg.b) mz += 1;
-      if (msg.l) mx -= 1;
-      if (msg.r) mx += 1;
-      if (mx || mz) {
-        const len = Math.hypot(mx, mz);
-        mx = (mx / len) * 1.12; // strafe-running advantage
-        mz /= len;
-        moveWithColliders(
-          p,
-          (mx * Math.cos(yaw) + mz * Math.sin(yaw)) * speed * dt,
-          (-mx * Math.sin(yaw) + mz * Math.cos(yaw)) * speed * dt
-        );
-      }
-      if (msg.shoot) tryShoot(p, !!msg.click);
-      else p.shooting = false;
+      p.input = {
+        f: !!msg.f,
+        b: !!msg.b,
+        l: !!msg.l,
+        r: !!msg.r,
+        sprint: !!msg.sprint,
+        shoot: !!msg.shoot,
+        click: !!msg.click || !!p.input?.click,
+        yaw,
+        pitch,
+        at: Date.now(),
+      };
       return;
     }
 
@@ -709,6 +739,8 @@ wss.on('connection', (ws) => {
 setInterval(() => {
   const now = Date.now();
 
+  for (const p of players.values()) applyPlayerInput(p);
+  tickMapShortcuts(now);
   tickFacility(now);
 
   for (const p of players.values()) {
@@ -734,7 +766,6 @@ setInterval(() => {
       p.armor = 0;
       broadcast({ type: 'respawn', id: p.id, player: publicPlayer(p) });
     }
-    p.shooting = false;
   }
 
   // Floor pads: respawn + proximity pickup (server owns positions)

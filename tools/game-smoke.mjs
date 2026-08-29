@@ -54,6 +54,17 @@ check('Facility reactor hazard built', spots.hazards === 1, `hazards=${spots.haz
 check('Facility paired vents built', spots.teleporters === 2, `teleporters=${spots.teleporters}`);
 check('Facility control panels built', spots.switches === 2, `switches=${spots.switches}`);
 
+const mapFlows = await page.evaluate(() => {
+  const ids = ['stadium', 'lunch', 'starbucks', 'megacorp', 'facility'];
+  return ids.map((id) => {
+    SKULL_DEBUG.loadMap(id);
+    return { id, ...SKULL_DEBUG.debugSpots() };
+  });
+});
+for (const map of mapFlows) {
+  check(`${map.id}: cross-map shortcuts built`, map.teleporters === 2, `teleporters=${map.teleporters}`);
+}
+
 await page.evaluate(() => SKULL_DEBUG.teleport(0, -28));
 await sleep(100);
 const usedPanel = await page.evaluate(() => SKULL_DEBUG.useMapControl());
@@ -61,7 +72,7 @@ const suppressed = await page.evaluate(() => SKULL_DEBUG.mapFun());
 check('control panel suppresses reactor', usedPanel && suppressed.disabledFor > 11000, `disabledFor=${suppressed.disabledFor}`);
 
 await page.evaluate(() => SKULL_DEBUG.teleport(-50, 0));
-await sleep(250);
+await sleep(500);
 const ventPos = await page.evaluate(() => SKULL_DEBUG.mePos());
 check('west vent crosses the map', ventPos.x > 40, `x=${ventPos.x.toFixed(1)}`);
 

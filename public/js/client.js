@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 // Build-stamped imports — bump these versions so browsers drop stale modules
 import { AGENTS, getAgent, statBar } from './roster.js?v=20260825c';
-import { MAPS, getMap, buildMapById, bindThree, PAD_SPOTS, GOLD_SPOTS } from './maps.js?v=20260825c';
+import { MAPS, getMap, buildMapById, bindThree, PAD_SPOTS, GOLD_SPOTS } from './maps.js?v=20260829a';
 import { WEAPONS, GOLD_SHOTS, GUN_RANK, getWeapon } from './weapons.js?v=20260825c';
 import { BRAND } from './brand.js?v=20260825c';
 
@@ -617,22 +617,36 @@ function nearestMapSwitch() {
 }
 
 function updateMapGameplay(dt, now) {
+  const pulse = 0.65 + Math.sin(now * 0.012) * 0.35;
+  for (const shortcut of MAP_OBJECTS.teleporters) {
+    shortcut.mesh.rotation.z += dt * 1.7;
+    shortcut.material.emissiveIntensity = 1.1 + pulse * 0.8;
+  }
+  if (offlineMode && offlineMatch) {
+    for (const p of offlineMatch.roster) {
+      if (!p.alive) continue;
+      for (const shortcut of MAP_OBJECTS.teleporters) {
+        if (now < (p.mapTeleportReadyAt || 0)) continue;
+        if (Math.hypot(p.x - shortcut.x, p.z - shortcut.z) > 1.55) continue;
+        p.x = shortcut.toX;
+        p.z = shortcut.toZ;
+        p.mapTeleportReadyAt = now + 1400;
+        if (p.id === myId) showCenter('SHORTCUT LINK', 650);
+        break;
+      }
+    }
+  }
   if (selectedMapId !== 'facility') {
     els.interactPrompt?.classList.remove('show');
     return;
   }
   const mode = facilityMode(now);
-  const pulse = 0.65 + Math.sin(now * 0.012) * 0.35;
 
   for (const hazard of MAP_OBJECTS.hazards) {
     hazard.material.color.setHex(mode === 2 ? 0xe5392d : mode === 1 ? 0xb56a4d : 0x294529);
     hazard.material.emissive.setHex(mode === 2 ? 0xe5392d : mode === 1 ? 0xffa43a : 0x2e6e3e);
     hazard.material.emissiveIntensity = mode === 2 ? 1.4 + pulse : mode === 1 ? 0.8 + pulse * 0.4 : 0.3;
     hazard.mesh.rotation.y += dt * (mode === 2 ? 1.8 : 0.35);
-  }
-  for (const vent of MAP_OBJECTS.teleporters) {
-    vent.mesh.rotation.z += dt * 1.7;
-    vent.material.emissiveIntensity = 1.1 + pulse * 0.8;
   }
   const disabled = mode === 0 && (
     (offlineMode && now < mapRuntime.disabledUntil) ||
@@ -652,15 +666,6 @@ function updateMapGameplay(dt, now) {
   if (!offlineMode || !offlineMatch) return;
   for (const p of offlineMatch.roster) {
     if (!p.alive) continue;
-    for (const vent of MAP_OBJECTS.teleporters) {
-      if (now < (p.mapTeleportReadyAt || 0)) continue;
-      if (Math.hypot(p.x - vent.x, p.z - vent.z) > 1.55) continue;
-      p.x = vent.toX;
-      p.z = vent.toZ;
-      p.mapTeleportReadyAt = now + 1400;
-      if (p.id === myId) showCenter('VENT LINK', 650);
-      break;
-    }
     if (mode !== 2 || now < (p.mapHazardTickAt || 0)) continue;
     const hazard = MAP_OBJECTS.hazards[0];
     if (!hazard || Math.hypot(p.x - hazard.x, p.z - hazard.z) > hazard.radius) continue;
@@ -2533,7 +2538,10 @@ function resolveWsUrl() {
   const base =
     fromQuery ||
     localStorage.getItem('skullbond-ws') ||
-    (typeof window.SKULLBOND_WS === 'string' ? window.SKULLBOND_WS : '');
+    (typeof window.SKULLBOND_WS === 'string' ? window.SKULLBOND_WS : '') ||
+    (/\.vercel\.app$/i.test(location.hostname)
+      ? 'https://skullbond-gs-4p-2026.onrender.com'
+      : '');
   if (base) {
     if (base.startsWith('ws://') || base.startsWith('wss://')) {
       return base.endsWith('/ws') ? base : `${base.replace(/\/$/, '')}/ws`;
@@ -2545,17 +2553,9 @@ function resolveWsUrl() {
   return `${proto}://${location.host}/ws`;
 }
 
-function isHostedStatic() {
-  return /\.vercel\.app$/i.test(location.hostname) || location.search.includes('solo=1');
-}
-
 function connect(name) {
-  if (
-    isHostedStatic() &&
-    !localStorage.getItem('skullbond-ws') &&
-    !new URLSearchParams(location.search).get('ws')
-  ) {
-    statusMsg(selectStatus || bootStatus, 'NO GAME SERVER ON VERCEL — STARTING SOLO…');
+  if (new URLSearchParams(location.search).get('solo') === '1') {
+    statusMsg(selectStatus || bootStatus, 'STARTING SOLO OPS…');
     setTimeout(() => {
       loadSelectedMap(selectedMapId);
       startOffline(name);
@@ -2564,6 +2564,7 @@ function connect(name) {
   }
 
   const url = resolveWsUrl();
+  const wakingRender = /\.onrender\.com/i.test(url);
   let settled = false;
   const failToSolo = (why) => {
     if (settled || myId || offlineMode) return;
@@ -2586,7 +2587,8 @@ function connect(name) {
     return;
   }
 
-  const timer = setTimeout(() => failToSolo('UPLINK TIMEOUT'), 2500);
+  if (wakingRender) statusMsg(selectStatus || bootStatus, 'WAKING FREE MULTIPLAYER SERVER…');
+  const timer = setTimeout(() => failToSolo('UPLINK TIMEOUT'), wakingRender ? 60000 : 2500);
 
   ws.onopen = () => {
     bootStatus.textContent = 'LINKED — ARMING…';
@@ -3154,11 +3156,19 @@ window.SKULL_DEBUG = {
       switches: MAP_OBJECTS.switches.length,
     };
   },
+  loadMap(id) {
+    if (!MAPS.some((map) => map.id === id)) return false;
+    loadSelectedMap(id);
+    return true;
+  },
   mapFun() {
+    const me = offlineMatch?.roster.find((player) => player.id === myId);
     return {
       mode: facilityMode(Date.now()),
       disabledFor: Math.max(0, mapRuntime.disabledUntil - Date.now()),
       nearestSwitch: nearestMapSwitch()?.id || null,
+      offline: offlineMode,
+      teleportReadyIn: Math.max(0, (me?.mapTeleportReadyAt || 0) - Date.now()),
       teleporters: MAP_OBJECTS.teleporters.map((v) => ({ id: v.id, x: v.x, z: v.z, toX: v.toX, toZ: v.toZ })),
     };
   },

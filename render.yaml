@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: skullbond-gs-4p-2026
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeployTrigger: commit

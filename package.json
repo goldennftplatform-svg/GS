@@ -6,7 +6,9 @@
   "scripts": {
     "start": "node server/index.js",
     "dev": "node server/index.js",
-    "build:colliders": "node tools/extract-colliders.mjs"
+    "build:colliders": "node tools/extract-colliders.mjs",
+    "test:game": "node tools/game-smoke.mjs",
+    "test:multiplayer": "node tools/server-map-smoke.cjs"
   },
   "engines": {
     "node": ">=18"

@@ -98,9 +98,9 @@ export const PAD_SPOTS = {
 /** Golden Skullgun drop point — open ground, away from center props. */
 export const GOLD_SPOTS = {
   stadium: [0, 0],
-  lunch: [0, 38],
+  lunch: [0, 0],
   starbucks: [0, 12],
-  megacorp: [0, -26],
+  megacorp: [0, 10],
   facility: [0, 0],
 };
 
@@ -487,7 +487,7 @@ function api(ctx) {
 function buildStadium(ctx) {
   const size = 120;
   ctx.setBounds(size);
-  const { solidBox, floorPlane, shell, cornerSpawns, lights } = api(ctx);
+  const { solidBox, floorPlane, shell, cornerSpawns, lights, teleporter } = api(ctx);
   const grass = texGrass();
   const concrete = texConcrete();
   lights(0x88aa88, 0x0c1810, 50, 130, [
@@ -516,17 +516,23 @@ function buildStadium(ctx) {
   }
   // cover pillars
   for (const [x, z] of [
-    [-20, -20], [20, -20], [-20, 20], [20, 20], [0, -30], [0, 30], [-30, 0], [30, 0],
+    [-20, -20], [20, -20], [-20, 20], [20, 20], [-30, 0], [30, 0],
   ]) {
     solidBox(2.4, 3.5, 2.4, 0x666666, x, 1.75, z, { map: concrete });
   }
+  solidBox(18, 2.2, 1.4, 0x4a4a4a, -15, 1.1, -12, { map: concrete });
+  solidBox(18, 2.2, 1.4, 0x4a4a4a, 15, 1.1, 12, { map: concrete });
+  solidBox(1.4, 2.2, 14, 0x4a4a4a, -12, 1.1, 15, { map: concrete });
+  solidBox(1.4, 2.2, 14, 0x4a4a4a, 12, 1.1, -15, { map: concrete });
+  teleporter('north-goal-link', 0, -47, 0, 42);
+  teleporter('south-goal-link', 0, 47, 0, -42);
   cornerSpawns(48);
 }
 
 function buildLunch(ctx) {
   const size = 100;
   ctx.setBounds(size);
-  const { solidBox, floorPlane, shell, cornerSpawns, lights } = api(ctx);
+  const { solidBox, floorPlane, shell, cornerSpawns, lights, teleporter, doorFrame } = api(ctx);
   const tile = texTile('#c9b896', '#b5a07e');
   const brick = texBrick();
   lights(0xffe0c0, 0x1a1410, 40, 110, [
@@ -539,19 +545,17 @@ function buildLunch(ctx) {
   // serving line
   solidBox(40, 1.2, 4, 0xb56a4d, 0, 0.6, -30, { map: texWood() });
   solidBox(40, 2.5, 0.4, 0x8e8e8e, 0, 2.2, -32);
-  // tables grid
-  for (let x = -30; x <= 30; x += 12) {
-    for (let z = -12; z <= 24; z += 12) {
-      solidBox(6, 0.25, 3, 0x6baf6e, x, 0.9, z);
-      solidBox(0.35, 0.9, 0.35, 0x444444, x - 2.5, 0.45, z - 1);
-      solidBox(0.35, 0.9, 0.35, 0x444444, x + 2.5, 0.45, z - 1);
-      solidBox(0.35, 0.9, 0.35, 0x444444, x - 2.5, 0.45, z + 1);
-      solidBox(0.35, 0.9, 0.35, 0x444444, x + 2.5, 0.45, z + 1);
-    }
+  // Four table islands leave broad diagonal routes instead of a prop maze.
+  for (const [x, z, vertical] of [[-22, -10, 0], [22, -10, 0], [-18, 18, 1], [18, 18, 1]]) {
+    solidBox(vertical ? 4 : 12, 1.1, vertical ? 12 : 4, 0x6baf6e, x, 0.55, z);
   }
-  // tray racks / vending
-  solidBox(3, 3.5, 2, 0xe5392d, -40, 1.75, 0, { emissive: 0x441111, emissiveIntensity: 0.2 });
-  solidBox(3, 3.5, 2, 0x6baf6e, 40, 1.75, 0, { emissive: 0x113311, emissiveIntensity: 0.2 });
+  solidBox(10, 2.4, 3, 0xb56a4d, 0, 1.2, 8, { map: texWood() });
+  solidBox(3, 3.5, 2, 0xe5392d, -40, 1.75, -12, { emissive: 0x441111, emissiveIntensity: 0.2 });
+  solidBox(3, 3.5, 2, 0x6baf6e, 40, 1.75, 12, { emissive: 0x113311, emissiveIntensity: 0.2 });
+  teleporter('west-service', -42, 0, 38, 0);
+  teleporter('east-service', 42, 0, -38, 0);
+  doorFrame(-42, 0, 6, Math.PI / 2, 0x6d4633);
+  doorFrame(42, 0, 6, Math.PI / 2, 0x6d4633);
   solidBox(8, 4, 1, 0xfff2b3, 0, 3, 45, { collide: false, emissive: 0x665522, emissiveIntensity: 0.15 });
   cornerSpawns(40);
 }
@@ -559,7 +563,7 @@ function buildLunch(ctx) {
 function buildStarbucks(ctx) {
   const size = 90;
   ctx.setBounds(size);
-  const { solidBox, floorPlane, shell, cornerSpawns, lights } = api(ctx);
+  const { solidBox, floorPlane, shell, cornerSpawns, lights, teleporter, doorFrame } = api(ctx);
   const wood = texWood();
   const cafe = texCafe();
   lights(0xffe8d0, 0x1c120e, 35, 100, [
@@ -588,13 +592,17 @@ function buildStarbucks(ctx) {
   solidBox(6, 3, 0.3, 0xfff2b3, 0, 3, 40, { emissive: 0x443300, emissiveIntensity: 0.25, collide: false });
   // pickup shelf
   solidBox(8, 1.2, 2, 0x8e8e8e, 18, 0.6, -20);
+  teleporter('stockroom-west', -37, -26, 34, 26);
+  teleporter('stockroom-east', 37, 26, -34, -26);
+  doorFrame(-37, -26, 6, Math.PI / 2, 0x2c211c);
+  doorFrame(37, 26, 6, Math.PI / 2, 0x2c211c);
   cornerSpawns(35);
 }
 
 function buildMegacorp(ctx) {
   const size = 110;
   ctx.setBounds(size);
-  const { solidBox, floorPlane, shell, cornerSpawns, lights } = api(ctx);
+  const { solidBox, floorPlane, shell, cornerSpawns, lights, teleporter } = api(ctx);
   const marble = texMarble();
   const concrete = texConcrete();
   lights(0xcce0ff, 0x0a1020, 45, 120, [
@@ -611,14 +619,15 @@ function buildMegacorp(ctx) {
   // reception desks
   solidBox(16, 1.3, 3, 0x222222, 0, 0.65, -35, { metalness: 0.4 });
   solidBox(16, 1.3, 3, 0x222222, 0, 0.65, 35, { metalness: 0.4 });
-  // glass-ish partition fins
-  for (let x = -36; x <= 36; x += 12) {
-    solidBox(0.4, 6, 8, 0x88aacc, x, 3, -15, { metalness: 0.6, roughness: 0.2, collide: true });
-    solidBox(0.4, 6, 8, 0x88aacc, x, 3, 15, { metalness: 0.6, roughness: 0.2, collide: true });
+  // Three office wings frame the center cross while preserving flank loops.
+  for (const [x, z] of [[-28, -15], [0, -15], [28, -15], [-28, 15], [0, 15], [28, 15]]) {
+    solidBox(0.6, 5, 10, 0x88aacc, x, 2.5, z, { metalness: 0.6, roughness: 0.2 });
   }
   // elevator banks
   solidBox(10, 7, 2, 0x333333, -45, 3.5, 0, { emissive: 0x224422, emissiveIntensity: 0.2 });
   solidBox(10, 7, 2, 0x333333, 45, 3.5, 0, { emissive: 0x224422, emissiveIntensity: 0.2 });
+  teleporter('west-elevator', -45, 5, 41, -5);
+  teleporter('east-elevator', 45, -5, -41, 5);
   cornerSpawns(44);
 }
 
