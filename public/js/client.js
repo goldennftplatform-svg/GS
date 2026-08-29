@@ -2546,6 +2546,10 @@ function resolveWsUrl() {
     if (base.startsWith('ws://') || base.startsWith('wss://')) {
       return base.endsWith('/ws') ? base : `${base.replace(/\/$/, '')}/ws`;
     }
+    if (base.startsWith('http://') || base.startsWith('https://')) {
+      const socketBase = base.replace(/^http/, 'ws');
+      return socketBase.endsWith('/ws') ? socketBase : `${socketBase.replace(/\/$/, '')}/ws`;
+    }
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     return `${proto}://${base.replace(/\/$/, '')}/ws`;
   }
