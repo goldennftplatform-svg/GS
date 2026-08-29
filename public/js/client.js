@@ -55,6 +55,7 @@ let lastLocalShot = 0;
 let triggerFresh = false;
 let adsBlend = 0;
 let matchStartedAt = 0;
+let remoteShotsSeen = 0;
 
 /** Viewmodel mounting per weapon — guns authored muzzle-forward (-Z after glTF). */
 const VIEWMODEL = {
@@ -1823,6 +1824,7 @@ function spawnNetworkTracer(originData, impactData, weaponId) {
   const dir = impact.sub(origin);
   const dist = dir.length();
   if (dist < 0.01) return;
+  remoteShotsSeen += 1;
   dir.multiplyScalar(1 / dist);
   spawnTracer(origin, dir, dist, getWeapon(weaponId || 'raygun').tracer);
   spawnBolt(origin, dir.clone(), 'remote', getWeapon(weaponId || 'raygun').boltColor, 0.055);
@@ -3138,6 +3140,7 @@ window.SKULL_DEBUG = {
       onlinePlayers: players.size,
       remoteBodies: remoteMeshes.size,
       liveTracers: tracers.length,
+      remoteShots: remoteShotsSeen,
     };
   },
   stats() {
