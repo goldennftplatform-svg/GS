@@ -2566,45 +2566,61 @@ function connect(name) {
   const url = resolveWsUrl();
   const wakingRender = /\.onrender\.com/i.test(url);
   let settled = false;
-  const failToSolo = (why) => {
+  let retryTimer = 0;
+  let attempts = 0;
+  const failJoin = (why) => {
     if (settled || myId || offlineMode) return;
     settled = true;
+    clearTimeout(retryTimer);
     try {
       ws?.close();
     } catch {}
     localStorage.removeItem('skullbond-ws');
-    statusMsg(selectStatus || bootStatus, `${why} — SOLO OPS`);
-    setTimeout(() => {
-      loadSelectedMap(selectedMapId);
-      startOffline(name);
-    }, 350);
+    statusMsg(selectStatus || bootStatus, `${why} — RETRY OR USE SOLO OPS`);
+    joinBtn.disabled = false;
+    soloBtn.disabled = false;
   };
+  const timer = setTimeout(() => failJoin('UPLINK TIMEOUT'), wakingRender ? 75000 : 6000);
 
-  try {
-    ws = new WebSocket(url);
-  } catch {
-    failToSolo('LINK FAILED');
-    return;
+  function retryOrFail(socket) {
+    if (settled || socket !== ws || retryTimer) return;
+    if (!wakingRender) {
+      clearTimeout(timer);
+      failJoin('LINK FAILED');
+      return;
+    }
+    statusMsg(selectStatus || bootStatus, `SERVER WAKING — RETRYING UPLINK ${attempts}…`);
+    retryTimer = setTimeout(() => {
+      retryTimer = 0;
+      openSocket();
+    }, 3000);
   }
 
-  if (wakingRender) statusMsg(selectStatus || bootStatus, 'WAKING FREE MULTIPLAYER SERVER…');
-  const timer = setTimeout(() => failToSolo('UPLINK TIMEOUT'), wakingRender ? 60000 : 2500);
+  function openSocket() {
+    attempts += 1;
+    let socket;
+    try {
+      socket = new WebSocket(url);
+      ws = socket;
+    } catch {
+      failJoin('LINK FAILED');
+      return;
+    }
+    socket.onopen = () => {
+      if (socket !== ws || settled) return;
+      statusMsg(selectStatus || bootStatus, 'LINKED — ARMING…');
+      socket.send(JSON.stringify({ type: 'join', name, agentId: selectedAgentId, mapId: selectedMapId }));
+    };
+    socket.onerror = () => retryOrFail(socket);
+    socket.onclose = () => {
+      if (socket !== ws) return;
+      if (!myId && !offlineMode) retryOrFail(socket);
+      else if (myId && !offlineMode) showCenter('CONNECTION LOST', 4000);
+    };
+    socket.onmessage = handleMessage;
+  }
 
-  ws.onopen = () => {
-    bootStatus.textContent = 'LINKED — ARMING…';
-    ws.send(JSON.stringify({ type: 'join', name, agentId: selectedAgentId, mapId: selectedMapId }));
-  };
-  ws.onerror = () => {
-    clearTimeout(timer);
-    failToSolo('LINK FAILED');
-  };
-  ws.onclose = () => {
-    clearTimeout(timer);
-    if (!myId && !offlineMode) failToSolo('DISCONNECTED');
-    else if (myId && !offlineMode) showCenter('CONNECTION LOST', 4000);
-  };
-
-  ws.onmessage = (ev) => {
+  function handleMessage(ev) {
     let msg;
     try {
       msg = JSON.parse(ev.data);
@@ -2612,8 +2628,10 @@ function connect(name) {
       return;
     }
     if (msg.type === 'error') {
+      settled = true;
       clearTimeout(timer);
-      bootStatus.textContent = msg.message;
+      clearTimeout(retryTimer);
+      statusMsg(selectStatus || bootStatus, msg.message);
       joinBtn.disabled = false;
       soloBtn.disabled = false;
       return;
@@ -2706,7 +2724,10 @@ function connect(name) {
       return;
     }
     if (msg.type === 'matchEnd') endMatch(msg.standings);
-  };
+  }
+
+  if (wakingRender) statusMsg(selectStatus || bootStatus, 'WAKING FREE MULTIPLAYER SERVER…');
+  openSocket();
 }
 
 function sendInput() {

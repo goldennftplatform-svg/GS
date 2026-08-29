@@ -12,7 +12,9 @@ Node.js WebSocket service because Vercel functions cannot hold game sockets.
 
 The Vercel client automatically connects to that hostname. Render's free tier
 sleeps while idle, so the first player can see `WAKING FREE MULTIPLAYER SERVER`
-for up to a minute. `?solo=1` always bypasses the server.
+for up to 75 seconds while the client retries the connection. A failed wake
+returns to agent selection instead of silently starting a separate solo match.
+`?solo=1` always bypasses the server.
 
 For a different host, open the game with `?ws=https://your-host.example`. The
 client remembers that value in local storage until a failed connection clears
@@ -31,4 +33,5 @@ In a second terminal, run:
 ```sh
 npm run test:game
 npm run test:multiplayer
+npm run test:two-player
 ```
