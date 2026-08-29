@@ -83,15 +83,15 @@ export const PAD_SPOTS = {
     { x: 12, z: 12, w: 'nade' },
   ],
   facility: [
-    { x: -29, z: -29, w: 'kf7' },
-    { x: 29, z: -29, w: 'dd' },
-    { x: -29, z: 29, w: 'klobb' },
-    { x: 29, z: 29, w: 'armor' },
-    { x: 0, z: -58, w: 'armor' },
-    { x: 0, z: 46, w: 'kf7' },
-    { x: 0, z: -22, w: 'dd' },
-    { x: -15, z: -10, w: 'nade' },
-    { x: 15, z: -35, w: 'nade' },
+    { x: -42, z: -30, w: 'kf7' },
+    { x: 42, z: 30, w: 'dd' },
+    { x: -42, z: 30, w: 'klobb' },
+    { x: 42, z: -30, w: 'armor' },
+    { x: 0, z: -42, w: 'armor' },
+    { x: 0, z: 42, w: 'kf7' },
+    { x: -26, z: 0, w: 'dd' },
+    { x: 26, z: 0, w: 'nade' },
+    { x: 0, z: 22, w: 'nade' },
   ],
 };
 
@@ -101,7 +101,7 @@ export const GOLD_SPOTS = {
   lunch: [0, 38],
   starbucks: [0, 12],
   megacorp: [0, -26],
-  facility: [0, -44],
+  facility: [0, 0],
 };
 
 let THREE;
@@ -319,6 +319,7 @@ export function buildMapById(id, ctx) {
 
 function api(ctx) {
   const { world, WALLS, THREE: T } = ctx;
+  const mapObjects = ctx.mapObjects || {};
   const eye = 1.65;
 
   function solidBox(w, h, d, color, x, y, z, opts = {}) {
@@ -407,7 +408,80 @@ function api(ctx) {
     }
   }
 
-  return { solidBox, floorPlane, shell, cornerSpawns, lights, eye };
+  function doorFrame(x, z, width, rotation = 0, color = 0x353c36) {
+    const horizontal = Math.abs(Math.sin(rotation)) < 0.5;
+    const jamb = 1.1;
+    if (horizontal) {
+      solidBox(jamb, 4.8, 1.1, color, x - width / 2, 2.4, z);
+      solidBox(jamb, 4.8, 1.1, color, x + width / 2, 2.4, z);
+      solidBox(width + jamb, 0.8, 1.1, color, x, 4.4, z);
+    } else {
+      solidBox(1.1, 4.8, jamb, color, x, 2.4, z - width / 2);
+      solidBox(1.1, 4.8, jamb, color, x, 2.4, z + width / 2);
+      solidBox(1.1, 0.8, width + jamb, color, x, 4.4, z);
+    }
+  }
+
+  function hazardZone(id, x, z, radius) {
+    const mat = new T.MeshStandardMaterial({
+      color: 0x294529,
+      emissive: 0x2e6e3e,
+      emissiveIntensity: 0.45,
+      roughness: 0.42,
+      metalness: 0.2,
+      transparent: true,
+      opacity: 0.82,
+    });
+    const mesh = new T.Mesh(new T.CylinderGeometry(radius, radius, 0.12, 32), mat);
+    mesh.position.set(x, 0.07, z);
+    mesh.receiveShadow = true;
+    world.add(mesh);
+    mapObjects.hazards?.push({ id, x, z, radius, mesh, material: mat });
+    return mesh;
+  }
+
+  function teleporter(id, x, z, toX, toZ) {
+    const mat = new T.MeshStandardMaterial({
+      color: 0x6baf6e,
+      emissive: 0x6baf6e,
+      emissiveIntensity: 1.4,
+      roughness: 0.3,
+    });
+    const mesh = new T.Mesh(new T.TorusGeometry(1.35, 0.18, 8, 24), mat);
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.set(x, 0.18, z);
+    world.add(mesh);
+    mapObjects.teleporters?.push({ id, x, z, toX, toZ, mesh, material: mat });
+    return mesh;
+  }
+
+  function switchPanel(id, x, z, rotation = 0) {
+    const mat = new T.MeshStandardMaterial({
+      color: 0xb56a4d,
+      emissive: 0x6baf6e,
+      emissiveIntensity: 0.35,
+      roughness: 0.5,
+    });
+    const mesh = new T.Mesh(new T.BoxGeometry(1.4, 2.1, 0.45), mat);
+    mesh.position.set(x, 1.2, z);
+    mesh.rotation.y = rotation;
+    world.add(mesh);
+    mapObjects.switches?.push({ id, x, z, mesh, material: mat });
+    return mesh;
+  }
+
+  return {
+    solidBox,
+    floorPlane,
+    shell,
+    cornerSpawns,
+    lights,
+    doorFrame,
+    hazardZone,
+    teleporter,
+    switchPanel,
+    eye,
+  };
 }
 
 function buildStadium(ctx) {
@@ -551,11 +625,21 @@ function buildMegacorp(ctx) {
 function buildFacility(ctx) {
   const size = 128;
   ctx.setBounds(size);
-  const { solidBox, floorPlane, shell, cornerSpawns, lights } = api(ctx);
+  const {
+    solidBox,
+    floorPlane,
+    shell,
+    cornerSpawns,
+    lights,
+    doorFrame,
+    hazardZone,
+    teleporter,
+    switchPanel,
+  } = api(ctx);
   const concrete = texConcrete();
   const tile = texTile('#3a4a38', '#2f3c2e');
   lights(0x88aa88, 0x0e1510, 50, 140, [
-    [0, 8, 0, 0x6baf6e, 1.2, 40],
+    [0, 8, 0, 0x6baf6e, 1.6, 42],
     [-40, 6, -40, 0xfff2b3, 0.8, 32],
     [40, 6, 40, 0xfff2b3, 0.8, 32],
     [-40, 6, 40, 0x6baf6e, 0.7, 30],
@@ -565,22 +649,52 @@ function buildFacility(ctx) {
   ]);
   floorPlane(size, tile);
   shell(size, 6.5, concrete, 0xffffff);
-  // central stack
-  solidBox(6, 5.5, 6, 0x1e2a1c, 0, 2.75, 0, { emissive: 0x2e6e3e, emissiveIntensity: 0.3 });
-  solidBox(2, 0.4, 2, 0x6baf6e, 0, 5.7, 0, { emissive: 0x6baf6e, emissiveIntensity: 1, collide: false });
-  for (const [x, z] of [
-    [-10, -10], [10, -10], [-10, 10], [10, 10], [-14, 0], [14, 0], [0, -14], [0, 14],
-    [-28, 0], [28, 0], [0, -28], [0, 28], [-18, -18], [18, -18], [-18, 18], [18, 18],
-  ]) {
-    solidBox(2.5, 3.2, 2.5, 0x5a6b52, x, 1.6, z, { map: concrete });
+
+  // Reactor chamber: four wide entrances, enough cover to contest the gold,
+  // and no forest of identical pillars obscuring the map's main landmark.
+  hazardZone('reactor', 0, 0, 9);
+  solidBox(4.5, 6.2, 4.5, 0x172019, 0, 3.1, 0, {
+    emissive: 0x2e6e3e,
+    emissiveIntensity: 0.75,
+  });
+  for (const x of [-14, 14]) {
+    solidBox(12, 4.6, 1.2, 0x465047, x, 2.3, -16, { map: concrete });
+    solidBox(12, 4.6, 1.2, 0x465047, x, 2.3, 16, { map: concrete });
   }
-  // rooms
-  for (let x = -20; x <= 20; x += 8) {
-    solidBox(2.6, 3.8, 2.6, 0x6a7068, x, 1.9, 40, { emissive: 0x1a2a1a, emissiveIntensity: 0.12 });
+  for (const z of [-14, 14]) {
+    solidBox(1.2, 4.6, 12, 0x465047, -16, 2.3, z, { map: concrete });
+    solidBox(1.2, 4.6, 12, 0x465047, 16, 2.3, z, { map: concrete });
   }
-  solidBox(20, 3, 1.2, 0xb56a4d, -16, 1.5, -36);
-  solidBox(20, 3, 1.2, 0xb56a4d, 16, 1.5, -36);
-  cornerSpawns(46);
+  doorFrame(0, -16, 7);
+  doorFrame(0, 16, 7);
+  doorFrame(-16, 0, 7, Math.PI / 2);
+  doorFrame(16, 0, 7, Math.PI / 2);
+
+  // North/south control approaches provide cover and a reason to leave the
+  // outer loop: either panel suppresses the reactor long enough to take gold.
+  switchPanel('north-control', 0, -28);
+  switchPanel('south-control', 0, 28, Math.PI);
+  solidBox(18, 2.4, 2.2, 0x59625a, -20, 1.2, -34, { map: concrete });
+  solidBox(18, 2.4, 2.2, 0x59625a, 20, 1.2, -34, { map: concrete });
+  solidBox(18, 2.4, 2.2, 0x59625a, -20, 1.2, 34, { map: concrete });
+  solidBox(18, 2.4, 2.2, 0x59625a, 20, 1.2, 34, { map: concrete });
+
+  // Flanking corridors break long spawn-to-spawn sightlines. Paired vents
+  // connect them, creating escapes, ambushes and fast rotations.
+  solidBox(2, 4.5, 28, 0x3e4840, -30, 2.25, -27, { map: concrete });
+  solidBox(2, 4.5, 28, 0x3e4840, -30, 2.25, 27, { map: concrete });
+  solidBox(2, 4.5, 28, 0x3e4840, 30, 2.25, -27, { map: concrete });
+  solidBox(2, 4.5, 28, 0x3e4840, 30, 2.25, 27, { map: concrete });
+  teleporter('west-vent', -50, 0, 46, 0);
+  teleporter('east-vent', 50, 0, -46, 0);
+  doorFrame(-50, 0, 6, Math.PI / 2, 0x263028);
+  doorFrame(50, 0, 6, Math.PI / 2, 0x263028);
+
+  // Distinctive cover clusters make each quadrant readable at a glance.
+  for (const [x, z] of [[-44, -22], [44, 22], [-44, 22], [44, -22]]) {
+    solidBox(5, 2.8, 5, 0x59625a, x, 1.4, z, { map: concrete });
+  }
+  cornerSpawns(52);
 }
 
 

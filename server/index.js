@@ -51,7 +51,7 @@ const GUN_PADS = {
     [-25, -25, 'kf7'], [25, -25, 'dd'], [-25, 25, 'klobb'], [25, 25, 'armor'], [-13, -41, 'armor'], [13, 41, 'kf7'], [0, 26, 'dd'], [-12, 0, 'nade'], [12, 12, 'nade'],
   ],
   facility: [
-    [-29, -29, 'kf7'], [29, -29, 'dd'], [-29, 29, 'klobb'], [29, 29, 'armor'], [0, -58, 'armor'], [0, 46, 'kf7'], [0, -22, 'dd'], [-15, -10, 'nade'], [15, -35, 'nade'],
+    [-42, -30, 'kf7'], [42, 30, 'dd'], [-42, 30, 'klobb'], [42, -30, 'armor'], [0, -42, 'armor'], [0, 42, 'kf7'], [-26, 0, 'dd'], [26, 0, 'nade'], [0, 22, 'nade'],
   ],
 };
 const GOLD_SPOTS = {
@@ -59,8 +59,16 @@ const GOLD_SPOTS = {
   lunch: [0, 38],
   starbucks: [0, 12],
   megacorp: [0, -26],
-  facility: [0, -44],
+  facility: [0, 0],
 };
+
+const FACILITY_SWITCHES = [[0, -28], [0, 28]];
+const FACILITY_VENTS = [
+  { x: -50, z: 0, toX: 46, toZ: 0 },
+  { x: 50, z: 0, toX: -46, toZ: 0 },
+];
+const FACILITY_REACTOR_RADIUS = 9;
+const facilityRuntime = { disabledUntil: 0, switchReadyAt: 0 };
 
 let mapId = 'facility';
 let MAP_HALF = MAP_DEFS.facility.half;
@@ -117,6 +125,8 @@ function applyMap(id) {
   MAP_HALF = def.half;
   SPAWNS = cornerSpawns(def.spawnR);
   colliders = MAP_COLLIDERS[mapId] || [];
+  facilityRuntime.disabledUntil = 0;
+  facilityRuntime.switchReadyAt = 0;
   buildPads();
   resetPads(Date.now());
 }
@@ -255,6 +265,7 @@ function round1(n) {
 }
 
 function snapshot(forId) {
+  const now = Date.now();
   return {
     type: 'state',
     you: forId,
@@ -264,6 +275,12 @@ function snapshot(forId) {
     killFeed: match.killFeed.slice(-6),
     maxPlayers: MAX_PLAYERS,
     pickups: publicPickups(),
+    mapRuntime: mapId === 'facility'
+      ? {
+          mode: facilityMode(now),
+          disabledFor: Math.max(0, facilityRuntime.disabledUntil - now),
+        }
+      : null,
   };
 }
 
@@ -299,6 +316,8 @@ function resetMatch() {
   match.started = false;
   match.endsAt = 0;
   match.killFeed = [];
+  facilityRuntime.disabledUntil = 0;
+  facilityRuntime.switchReadyAt = 0;
   for (const p of players.values()) {
     const s = SPAWNS[p.spawnIndex % SPAWNS.length];
     p.x = s.x;
@@ -414,6 +433,58 @@ function applyDamage(target, dmg, ignoreArmor) {
   const absorbed = ignoreArmor ? 0 : Math.min(target.armor || 0, dmg * ARMOR_ABSORB);
   target.armor = Math.max(0, (target.armor || 0) - absorbed);
   target.hp -= dmg - absorbed;
+}
+
+function facilityMode(now) {
+  if (mapId !== 'facility' || !match.started || now < facilityRuntime.disabledUntil) return 0;
+  const phase = Math.max(0, now - match.startedAt) % 12000;
+  if (phase >= 8000) return 2;
+  if (phase >= 6000) return 1;
+  return 0;
+}
+
+function useFacilityControl(p, now) {
+  if (mapId !== 'facility' || now < facilityRuntime.switchReadyAt) return false;
+  const close = FACILITY_SWITCHES.some(([x, z]) => Math.hypot(p.x - x, p.z - z) <= 3.2);
+  if (!close) return false;
+  facilityRuntime.disabledUntil = now + 12000;
+  facilityRuntime.switchReadyAt = now + 3000;
+  broadcast({ type: 'mapEvent', event: 'reactorSuppressed', name: p.name });
+  return true;
+}
+
+function eliminateByEnvironment(p, now) {
+  p.hp = 0;
+  p.alive = false;
+  p.deaths += 1;
+  p.lives = Math.max(0, p.lives - 1);
+  p.respawnAt = now + RESPAWN_MS;
+  const text = `REACTOR COOKED ${p.name}`;
+  pushFeed(text);
+  broadcast({ type: 'kill', killer: null, victim: p.id, text });
+}
+
+function tickFacility(now) {
+  if (mapId !== 'facility') return;
+  const mode = facilityMode(now);
+  for (const p of players.values()) {
+    if (!p.alive) continue;
+    if (now >= (p.mapTeleportReadyAt || 0)) {
+      for (const vent of FACILITY_VENTS) {
+        if (Math.hypot(p.x - vent.x, p.z - vent.z) > 1.55) continue;
+        p.x = vent.toX;
+        p.z = vent.toZ;
+        p.mapTeleportReadyAt = now + 1400;
+        break;
+      }
+    }
+    if (mode !== 2 || now < (p.mapHazardTickAt || 0)) continue;
+    if (Math.hypot(p.x, p.z) > FACILITY_REACTOR_RADIUS) continue;
+    if ((p.spawnShieldUntil || 0) > now) continue;
+    p.mapHazardTickAt = now + 500;
+    applyDamage(p, 14, true);
+    if (p.hp <= 0) eliminateByEnvironment(p, now);
+  }
 }
 
 function tryShoot(shooter, click) {
@@ -577,6 +648,11 @@ wss.on('connection', (ws) => {
       return;
     }
 
+    if (msg.type === 'use') {
+      if (p.alive) useFacilityControl(p, Date.now());
+      return;
+    }
+
     if (msg.type === 'input') {
       if (!p.alive) return;
       const yaw = Number(msg.yaw) || 0;
@@ -632,6 +708,8 @@ wss.on('connection', (ws) => {
 
 setInterval(() => {
   const now = Date.now();
+
+  tickFacility(now);
 
   for (const p of players.values()) {
     finishReloadIfDue(p, now);

@@ -43,10 +43,40 @@ page.on('pageerror', (e) => console.log('PAGE ERROR:', e.message));
 
 await page.goto('http://localhost:3000', { waitUntil: 'networkidle2', timeout: 60000 });
 await page.waitForFunction(() => !!window.SKULL_DEBUG, { timeout: 30000 });
-await page.evaluate(() => { SKULL_DEBUG.skipCountdown(true); SKULL_DEBUG.startSolo('skullpepe', 'stadium'); });
+await page.evaluate(() => { SKULL_DEBUG.skipCountdown(true); SKULL_DEBUG.startSolo('skullpepe', 'facility'); });
 await sleep(1200);
 let st = await page.evaluate(() => SKULL_DEBUG.state());
 check('solo match started', st.offline && st.alive);
+
+// ---- T0: Facility gameplay primitives are live, not decorative ----
+const spots = await page.evaluate(() => SKULL_DEBUG.debugSpots());
+check('Facility reactor hazard built', spots.hazards === 1, `hazards=${spots.hazards}`);
+check('Facility paired vents built', spots.teleporters === 2, `teleporters=${spots.teleporters}`);
+check('Facility control panels built', spots.switches === 2, `switches=${spots.switches}`);
+
+await page.evaluate(() => SKULL_DEBUG.teleport(0, -28));
+await sleep(100);
+const usedPanel = await page.evaluate(() => SKULL_DEBUG.useMapControl());
+const suppressed = await page.evaluate(() => SKULL_DEBUG.mapFun());
+check('control panel suppresses reactor', usedPanel && suppressed.disabledFor > 11000, `disabledFor=${suppressed.disabledFor}`);
+
+await page.evaluate(() => SKULL_DEBUG.teleport(-50, 0));
+await sleep(250);
+const ventPos = await page.evaluate(() => SKULL_DEBUG.mePos());
+check('west vent crosses the map', ventPos.x > 40, `x=${ventPos.x.toFixed(1)}`);
+
+await page.evaluate(() => {
+  SKULL_DEBUG.freezeBots(true);
+  SKULL_DEBUG.teleport(0, 0);
+  SKULL_DEBUG.setMapPhase(9000);
+});
+await sleep(650);
+const burned = await page.evaluate(() => SKULL_DEBUG.stats());
+check('active reactor damages players', burned.me.hp < 100, `hp=${burned.me.hp}`);
+await page.evaluate(() => {
+  SKULL_DEBUG.teleport(0, -28);
+  SKULL_DEBUG.setMapPhase(0);
+});
 
 const down = () =>
   page.evaluate(() =>

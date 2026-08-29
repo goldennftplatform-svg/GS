@@ -592,6 +592,24 @@ html, body {
   color: var(--green);
 }
 
+#interactPrompt {
+  position: absolute;
+  left: 50%;
+  bottom: 22%;
+  transform: translateX(-50%);
+  padding: 8px 12px;
+  border: 2px solid var(--green);
+  background: rgba(5, 12, 7, 0.88);
+  color: var(--cream);
+  font: 9px "Press Start 2P", monospace;
+  letter-spacing: 0.08em;
+  opacity: 0;
+  transition: opacity 80ms linear;
+  pointer-events: none;
+}
+
+#interactPrompt.show { opacity: 1; }
+
 .agent-card {
   border: 3px solid #2a3528;
   background: #121812;

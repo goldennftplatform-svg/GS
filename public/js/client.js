@@ -115,6 +115,7 @@ const els = {
   nadeNum: document.getElementById('nadeNum'),
   radar: document.getElementById('radar'),
   mapTag: document.getElementById('mapTag'),
+  interactPrompt: document.getElementById('interactPrompt'),
 };
 
 let selectedAgentId = localStorage.getItem('skullbond-agent') || 'skullpepe';
@@ -147,6 +148,8 @@ let offlineMatch = null;
 /** Solid XZ boxes for collision (axis-aligned). */
 const WALLS = [];
 const PILLARS = [];
+const MAP_OBJECTS = { hazards: [], teleporters: [], switches: [] };
+const mapRuntime = { disabledUntil: 0, netState: null };
 
 let SPAWNS = [
   { x: -52, y: EYE, z: -52, yaw: Math.PI / 4 },
@@ -542,6 +545,11 @@ function clearWorld() {
   WALLS.length = 0;
   PILLARS.length = 0;
   animatedProps.length = 0;
+  MAP_OBJECTS.hazards.length = 0;
+  MAP_OBJECTS.teleporters.length = 0;
+  MAP_OBJECTS.switches.length = 0;
+  mapRuntime.disabledUntil = 0;
+  mapRuntime.netState = null;
 }
 
 function loadSelectedMap(mapId = selectedMapId) {
@@ -552,6 +560,7 @@ function loadSelectedMap(mapId = selectedMapId) {
     scene,
     world,
     WALLS,
+    mapObjects: MAP_OBJECTS,
     THREE,
     setSpawns(next) {
       SPAWNS = next;
@@ -565,6 +574,115 @@ function loadSelectedMap(mapId = selectedMapId) {
   buildPads();
   if (models.crate) decorateMapProps();
   return map;
+}
+
+function facilityMode(now) {
+  if (selectedMapId !== 'facility') return 0;
+  if (!offlineMode && mapRuntime.netState) return mapRuntime.netState.mode || 0;
+  if (now < mapRuntime.disabledUntil) return 0;
+  const phase = Math.max(0, now - matchStartedAt) % 12000;
+  if (phase >= 8000) return 2;
+  if (phase >= 6000) return 1;
+  return 0;
+}
+
+function eliminateByReactor(p, now) {
+  p.hp = 0;
+  p.alive = false;
+  p.deaths += 1;
+  p.lives = Math.max(0, p.lives - 1);
+  if (offlineMatch.mode !== 'l2t' || p.lives > 0) p.respawnAt = now + 3000;
+  pushFeed(`REACTOR COOKED ${p.name}`, '#6baf6e');
+  if (p.id === myId) {
+    playSting('death');
+    showCenter('REACTOR CRITICAL', 1200, true);
+  }
+}
+
+function nearestMapSwitch() {
+  const me = offlineMode && offlineMatch
+    ? offlineMatch.roster.find((p) => p.id === myId)
+    : players.get(myId);
+  if (!me?.alive || selectedMapId !== 'facility') return null;
+  let nearest = null;
+  let distance = 3.2;
+  for (const panel of MAP_OBJECTS.switches) {
+    const d = Math.hypot(me.x - panel.x, me.z - panel.z);
+    if (d < distance) {
+      nearest = panel;
+      distance = d;
+    }
+  }
+  return nearest;
+}
+
+function updateMapGameplay(dt, now) {
+  if (selectedMapId !== 'facility') {
+    els.interactPrompt?.classList.remove('show');
+    return;
+  }
+  const mode = facilityMode(now);
+  const pulse = 0.65 + Math.sin(now * 0.012) * 0.35;
+
+  for (const hazard of MAP_OBJECTS.hazards) {
+    hazard.material.color.setHex(mode === 2 ? 0xe5392d : mode === 1 ? 0xb56a4d : 0x294529);
+    hazard.material.emissive.setHex(mode === 2 ? 0xe5392d : mode === 1 ? 0xffa43a : 0x2e6e3e);
+    hazard.material.emissiveIntensity = mode === 2 ? 1.4 + pulse : mode === 1 ? 0.8 + pulse * 0.4 : 0.3;
+    hazard.mesh.rotation.y += dt * (mode === 2 ? 1.8 : 0.35);
+  }
+  for (const vent of MAP_OBJECTS.teleporters) {
+    vent.mesh.rotation.z += dt * 1.7;
+    vent.material.emissiveIntensity = 1.1 + pulse * 0.8;
+  }
+  const disabled = mode === 0 && (
+    (offlineMode && now < mapRuntime.disabledUntil) ||
+    (!offlineMode && (mapRuntime.netState?.disabledFor || 0) > 0)
+  );
+  for (const panel of MAP_OBJECTS.switches) {
+    panel.material.emissive.setHex(disabled ? 0xffa43a : 0x6baf6e);
+    panel.material.emissiveIntensity = disabled ? 1.2 : 0.35 + pulse * 0.2;
+  }
+
+  const nearbyPanel = nearestMapSwitch();
+  if (els.interactPrompt) {
+    els.interactPrompt.textContent = nearbyPanel ? '[E] SUPPRESS REACTOR' : '';
+    els.interactPrompt.classList.toggle('show', !!nearbyPanel);
+  }
+
+  if (!offlineMode || !offlineMatch) return;
+  for (const p of offlineMatch.roster) {
+    if (!p.alive) continue;
+    for (const vent of MAP_OBJECTS.teleporters) {
+      if (now < (p.mapTeleportReadyAt || 0)) continue;
+      if (Math.hypot(p.x - vent.x, p.z - vent.z) > 1.55) continue;
+      p.x = vent.toX;
+      p.z = vent.toZ;
+      p.mapTeleportReadyAt = now + 1400;
+      if (p.id === myId) showCenter('VENT LINK', 650);
+      break;
+    }
+    if (mode !== 2 || now < (p.mapHazardTickAt || 0)) continue;
+    const hazard = MAP_OBJECTS.hazards[0];
+    if (!hazard || Math.hypot(p.x - hazard.x, p.z - hazard.z) > hazard.radius) continue;
+    if ((p.spawnShieldUntil || 0) > now) continue;
+    p.mapHazardTickAt = now + 500;
+    p.hp -= 14;
+    if (p.id === myId) showCenter('REACTOR BURN', 350);
+    if (p.hp <= 0) eliminateByReactor(p, now);
+  }
+}
+
+function useMapControl() {
+  const panel = nearestMapSwitch();
+  if (!panel) return false;
+  if (offlineMode) {
+    mapRuntime.disabledUntil = Math.max(mapRuntime.disabledUntil, Date.now() + 12000);
+    showCenter('REACTOR SUPPRESSED - 12 SEC', 1300);
+    playPickup();
+  } else if (ws?.readyState === 1) {
+    ws.send(JSON.stringify({ type: 'use' }));
+  }
+  return true;
 }
 
 function drawRadar() {
@@ -2516,6 +2634,7 @@ function connect(name) {
       return;
     }
     if (msg.type === 'state') {
+      mapRuntime.netState = msg.mapRuntime || null;
       syncRemotes(msg.players);
       const me = msg.players.find((p) => p.id === myId);
       if (me) {
@@ -2564,6 +2683,13 @@ function connect(name) {
     if (msg.type === 'goldlive') {
       showCenter('THE GOLDEN SKULLGUN IS LIVE', 2000);
       playGoldSting();
+      return;
+    }
+    if (msg.type === 'mapEvent') {
+      if (msg.event === 'reactorSuppressed') {
+        showCenter(`${msg.name} SUPPRESSED REACTOR`, 1200);
+        playPickup();
+      }
       return;
     }
     if (msg.type === 'kill') {
@@ -2776,6 +2902,7 @@ addEventListener('keydown', (e) => {
       if (me?.alive) throwGrenade(me);
     }
   }
+  if (e.code === 'KeyE' && inMatch()) useMapControl();
 });
 
 addEventListener('keyup', (e) => {
@@ -3022,8 +3149,25 @@ window.SKULL_DEBUG = {
       pads: pads.map((p) => ({ x: p.x, z: p.z })),
       gold: goldPad ? { x: goldPad.x, z: goldPad.z } : null,
       walls: WALLS.length,
+      hazards: MAP_OBJECTS.hazards.length,
+      teleporters: MAP_OBJECTS.teleporters.length,
+      switches: MAP_OBJECTS.switches.length,
     };
   },
+  mapFun() {
+    return {
+      mode: facilityMode(Date.now()),
+      disabledFor: Math.max(0, mapRuntime.disabledUntil - Date.now()),
+      nearestSwitch: nearestMapSwitch()?.id || null,
+      teleporters: MAP_OBJECTS.teleporters.map((v) => ({ id: v.id, x: v.x, z: v.z, toX: v.toX, toZ: v.toZ })),
+    };
+  },
+  setMapPhase(ms) {
+    matchStartedAt = Date.now() - Math.max(0, Number(ms) || 0);
+    mapRuntime.disabledUntil = 0;
+    return facilityMode(Date.now());
+  },
+  useMapControl,
   debugBlocked(x, z, pad = 1.2) {
     const hits = [];
     for (const w of WALLS) {
@@ -3207,6 +3351,7 @@ function tick() {
 
   if (offlineMode) offlineTick(dt);
   else sendInput();
+  updateMapGameplay(dt, Date.now());
   updateBolts(dt);
   updateTracers();
   updateGoos(dt);
