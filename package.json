@@ -9,7 +9,8 @@
     "build:colliders": "node tools/extract-colliders.mjs",
     "test:game": "node tools/game-smoke.mjs",
     "test:multiplayer": "node tools/server-map-smoke.cjs",
-    "test:two-player": "node tools/two-player-smoke.cjs"
+    "test:two-player": "node tools/two-player-smoke.cjs",
+    "test:four-player": "node tools/four-player-smoke.cjs"
   },
   "engines": {
     "node": ">=18"

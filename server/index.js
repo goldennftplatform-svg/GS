@@ -545,7 +545,7 @@ function tryShoot(shooter, click) {
   shooter.spawnShieldUntil = 0; // firing drops your spawn protection
   if (W.mag >= 0) shooter.ammo -= 1;
 
-  let dirX = Math.sin(shooter.yaw) * Math.cos(shooter.pitch);
+  let dirX = -Math.sin(shooter.yaw) * Math.cos(shooter.pitch);
   let dirY = Math.sin(shooter.pitch);
   let dirZ = -Math.cos(shooter.yaw) * Math.cos(shooter.pitch);
   if (W.spread > 0) {

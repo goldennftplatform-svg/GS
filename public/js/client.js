@@ -830,23 +830,6 @@ function makeAgentMesh(agentOrColor) {
 
   if (models.agent) {
     // Real-sample skins — unique bodies built from the NSES asset kit
-    if (agent.id === 'mini' && models.mohawk) {
-      // MINI MOHAWK: the mohawk gremlin head IS the agent
-      const g = new THREE.Group();
-      const head = popMats(standAndSize(models.mohawk, 1.35), 0.35);
-      head.rotation.y = Math.PI; // face the same direction as the other agents
-      head.traverse((o) => {
-        if (o.isMesh) {
-          o.castShadow = true;
-          o.receiveShadow = true;
-        }
-      });
-      g.add(head);
-      g.scale.setScalar(agent.scale || 1);
-      addIdentityKit(g, agent, 1.55 * (agent.scale || 1));
-      g.userData.hoverBob = true;
-      return g;
-    }
     if (agent.id === 'drone' && models.badge) {
       // RAY DRONE: upright badge chassis hovering over its ring
       const g = new THREE.Group();
@@ -866,6 +849,7 @@ function makeAgentMesh(agentOrColor) {
     }
 
     const clone = models.agent.clone(true);
+    clone.userData.fullBody = true;
     clone.scale.multiplyScalar(agent.scale || 1);
     tintClone(clone, color);
 
@@ -902,6 +886,12 @@ function makeAgentMesh(agentOrColor) {
       crown.rotation.z = 0.12;
       clone.add(crown);
     }
+    if (agent.id === 'mini' && models.mohawk) {
+      const mohawk = popMats(standAndSize(models.mohawk, 0.72), 0.35);
+      mohawk.position.y = 1.25;
+      mohawk.rotation.y = Math.PI;
+      clone.add(mohawk);
+    }
     if (agent.id === 'boss' && models.bag) {
       // BOSS MARKER: daily delivery bag strapped to the back
       const bag = popMats(standAndSize(models.bag, 0.62), 0.22);
@@ -922,6 +912,7 @@ function makeAgentMesh(agentOrColor) {
   }
 
   const g = new THREE.Group();
+  g.userData.fullBody = true;
   const bodyMat = new THREE.MeshStandardMaterial({ color, roughness: 0.7 });
   const torso = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.9, 0.45), bodyMat);
   torso.position.y = 0.95;
@@ -2219,7 +2210,7 @@ function publishOfflineHud() {
 function dirFromYawPitch(yaw0, pitch0, out = new THREE.Vector3()) {
   // Match Three.js camera forward for YXZ euler (look down -Z at 0,0)
   const cp = Math.cos(pitch0);
-  out.set(Math.sin(yaw0) * cp, -Math.sin(pitch0), -Math.cos(yaw0) * cp);
+  out.set(-Math.sin(yaw0) * cp, Math.sin(pitch0), -Math.cos(yaw0) * cp);
   return out.normalize();
 }
 
@@ -2462,7 +2453,7 @@ function updateBots(dt, now) {
     dist = dist || 0.001;
     const dx = (target.x - bot.x) / dist;
     const dz = (target.z - bot.z) / dist;
-    bot.yaw = Math.atan2(dx, -dz) + Math.sin(now * 0.0015 + bot.spawnIndex) * 0.15;
+    bot.yaw = Math.atan2(-dx, -dz) + Math.sin(now * 0.0015 + bot.spawnIndex) * 0.15;
     bot.pitch = THREE.MathUtils.clamp((target.y - bot.y) * 0.02, -0.4, 0.4);
 
     // Line-of-sight gate — no more shooting through walls
@@ -3039,6 +3030,7 @@ function onPrimaryDown(e) {
   tryPointerLock();
   canvas.focus();
   keys.shootHeld = true;
+  shootPulse = true;
   triggerFresh = true;
   firePrimary();
 }
@@ -3141,6 +3133,12 @@ window.SKULL_DEBUG = {
       remoteBodies: remoteMeshes.size,
       liveTracers: tracers.length,
       remoteShots: remoteShotsSeen,
+      remoteAgents: [...remoteMeshes].map(([id, mesh]) => ({
+        id,
+        agentId: players.get(id)?.agentId,
+        fullBody: !!mesh.userData.fullBody,
+        visible: mesh.visible,
+      })),
     };
   },
   stats() {
