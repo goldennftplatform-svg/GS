@@ -2864,6 +2864,7 @@ backBoot?.addEventListener('click', () => {
 
 joinBtn.addEventListener('click', () => armJoin('net'));
 spectateBtn.addEventListener('click', () => armJoin('spectator'));
+document.getElementById('bootSpectateBtn').addEventListener('click', () => armJoin('spectator'));
 document.getElementById('menuBtn').addEventListener('click', backToMenu);
   soloBtn.addEventListener('click', () => armJoin('solo'));
   const modeBtn = document.getElementById('modeBtn');

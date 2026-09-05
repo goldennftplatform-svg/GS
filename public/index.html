@@ -13,6 +13,10 @@
 <body>
   <div id="boot">
     <div class="check-top"></div>
+    <div class="spectate-entry">
+      <button id="bootSpectateBtn" class="cta">WATCH LIVE / SPECTATE</button>
+      <span>Free-fly around the multiplayer match. No player slot needed.</span>
+    </div>
     <div class="boot-inner boot-fps">
       <div class="boot-hero-art">
         <img class="boot-art" src="/assets/agents/og-skull-pepe.webp" width="816" height="1088" fetchpriority="high" alt="OG Skull Pepe holding the Ray Gun" />
@@ -49,6 +53,10 @@
         <p class="eyebrow">STEP 02 // BUILD LOADOUT</p>
         <h2>CHOOSE YOUR PEPE</h2>
         <p class="select-sub">Agent. Arena. Mode. Then deploy to the live match.</p>
+        <div class="spectate-entry">
+          <button id="spectateBtn" class="cta">WATCH LIVE / SPECTATE</button>
+          <span>Just watching? Skip the loadout and enter free-flight mode.</span>
+        </div>
       </header>
 
       <div class="map-row" id="mapGrid"></div>
@@ -68,7 +76,6 @@
           <div class="cta-row">
             <button id="modeBtn" class="cta cta-ghost">MODE: DEATHMATCH</button>
             <button id="joinBtn" class="cta">PLAY ONLINE</button>
-            <button id="spectateBtn" class="cta cta-ghost">SPECTATOR MODE</button>
             <button id="soloBtn" class="cta cta-alt">SOLO OPS</button>
             <button id="backBoot" class="cta cta-ghost">BACK</button>
           </div>
@@ -152,6 +159,6 @@
   }
   </script>
   <script type="module" src="/js/brand.js?v=20260824c"></script>
-  <script type="module" src="/js/client.js?v=20260904d"></script>
+  <script type="module" src="/js/client.js?v=20260904e"></script>
 </body>
 </html>
