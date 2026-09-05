@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 // Build-stamped imports — bump these versions so browsers drop stale modules
-import { AGENTS, getAgent, statBar } from './roster.js?v=20260829a';
+import { AGENTS, getAgent, statBar } from './roster.js?v=20260904a';
+import { EYE_HEIGHT, MODEL_HEIGHT, HITBOX_VERSION, getBodyBox, intersectBody } from './body-geometry.mjs?v=20260904a';
 import { MAPS, getMap, buildMapById, bindThree, PAD_SPOTS, GOLD_SPOTS } from './maps.js?v=20260829a';
 import { WEAPONS, GOLD_SHOTS, GUN_RANK, getWeapon } from './weapons.js?v=20260825c';
 import { BRAND } from './brand.js?v=20260825c';
@@ -21,7 +22,7 @@ const PALETTE = {
 
 let MAP = 128;
 let HALF = MAP / 2;
-const EYE = 1.65;
+const EYE = EYE_HEIGHT;
 const BOLT_SPEED = 70;
 const BOLT_LIFE = 0.7;
 const MAX_BOLTS = 10;
@@ -487,7 +488,7 @@ async function loadGameAssets() {
     );
     for (const [key, sceneRoot] of entries) models[key] = sceneRoot;
 
-    models.agent = groundNormalize(models.agent, 1.85);
+    models.agent = groundNormalize(models.agent, MODEL_HEIGHT);
     models.crate = groundNormalize(models.crate, 1.1);
     models.server = groundNormalize(models.server, 3.4);
     models.hazard = groundNormalize(models.hazard, 2.2);
@@ -844,13 +845,14 @@ function makeAgentMesh(agentOrColor) {
       g.add(disk);
       addIdentityKit(g, agent, 1.85 * (agent.scale || 1));
       g.scale.setScalar(agent.scale || 1);
-      g.userData.hoverBob = true;
       return g;
     }
 
-    const clone = models.agent.clone(true);
+    // Gameplay placement/scaling must not overwrite the normalized asset root.
+    const clone = new THREE.Group();
+    clone.add(models.agent.clone(true));
     clone.userData.fullBody = true;
-    clone.scale.multiplyScalar(agent.scale || 1);
+    clone.scale.setScalar(agent.scale || 1);
     tintClone(clone, color);
 
     const accentColor = new THREE.Color(agent.accent || color);
@@ -906,23 +908,27 @@ function makeAgentMesh(agentOrColor) {
       plate.rotation.y = Math.PI;
       clone.add(plate);
     }
-    addIdentityKit(clone, agent, 2.3 * (agent.scale || 1));
-    if (agent.hover) clone.userData.hoverBob = true;
+    addIdentityKit(clone, agent, 2.3);
     return clone;
   }
 
   const g = new THREE.Group();
   g.userData.fullBody = true;
+  const body = getBodyBox(agent.id);
+  const width = body.max[0] - body.min[0];
+  const height = body.max[1] - body.min[1];
+  const depth = body.max[2] - body.min[2];
+  const cx = (body.min[0] + body.max[0]) / 2;
+  const cz = (body.min[2] + body.max[2]) / 2;
   const bodyMat = new THREE.MeshStandardMaterial({ color, roughness: 0.7 });
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.9, 0.45), bodyMat);
-  torso.position.y = 0.95;
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(width * 0.8, height * 0.6, depth * 0.8), bodyMat);
+  torso.position.set(cx, body.min[1] + height * 0.3, cz);
   const head = new THREE.Mesh(
-    new THREE.BoxGeometry(0.5, 0.5, 0.5),
+    new THREE.BoxGeometry(width, height * 0.4, depth),
     new THREE.MeshStandardMaterial({ color: PALETTE.cream })
   );
-  head.position.y = 1.65;
+  head.position.set(cx, body.max[1] - height * 0.2, cz);
   g.add(torso, head);
-  g.scale.setScalar(agent.scale || 1);
   addIdentityKit(g, agent, 2.3 * (agent.scale || 1));
   return g;
 }
@@ -1603,13 +1609,9 @@ function syncRemotes(list) {
       remoteMeshes.set(p.id, mesh);
       scene.add(mesh);
     }
-    const snap = offlineMode || !mesh.userData.netPose || mesh.visible !== !!p.alive ||
-      Math.hypot(p.x - mesh.position.x, p.z - mesh.position.z) > 6;
-    mesh.userData.netPose = p;
     mesh.visible = !!p.alive;
-    if (!snap) continue;
-    const bob = mesh.userData.hoverBob ? Math.sin(performance.now() * 0.004) * 0.12 : 0;
-    mesh.position.set(p.x, (p.y || EYE) - EYE + bob, p.z);
+    // No extra render delay or cosmetic body displacement without server rewind.
+    mesh.position.set(p.x, p.y - EYE, p.z);
     mesh.rotation.y = p.yaw;
   }
   for (const [id, mesh] of remoteMeshes) {
@@ -2274,7 +2276,8 @@ function applyShot(shooter, now) {
     for (const t of offlineMatch.roster) {
       if (t.id === myId || !t.alive) continue;
       if ((t.spawnShieldUntil || 0) > now) continue;
-      to.set(t.x - origin.x, t.y - 0.25 - origin.y, t.z - origin.z);
+      const body = getBodyBox(t.agentId);
+      to.set(t.x - origin.x, t.y - EYE + (body.min[1] + body.max[1]) / 2 - origin.y, t.z - origin.z);
       if (to.length() > W.range) continue;
       to.normalize();
       const d = to.dot(dir);
@@ -2293,18 +2296,13 @@ function applyShot(shooter, now) {
   // Hitscan — walls clip the ray, bolt is VFX only
   let best = null;
   let bestT = Math.min(tWall, W.range);
-  const tgt = new THREE.Vector3();
-  const closest = new THREE.Vector3();
-  const hitR = adsBlend > 0.5 ? 1.15 : 1.45; // generous hips when not zoomed
   for (const target of offlineMatch.roster) {
     if (target.id === shooter.id || !target.alive) continue;
     // Spawn protection — freshly dropped agents can't be insta-plasted
     if ((target.spawnShieldUntil || 0) > now) continue;
-    tgt.set(target.x, target.y, target.z);
-    const t = closest.copy(tgt).sub(origin).dot(dir);
-    if (t < 0.5 || t > bestT) continue;
-    closest.copy(origin).addScaledVector(dir, t);
-    if (closest.distanceTo(tgt) < hitR) {
+    const t = intersectBody(origin.x, origin.y, origin.z,
+      dir.x, dir.y, dir.z, target, bestT);
+    if (t < bestT) {
       bestT = t;
       best = target;
     }
@@ -3136,6 +3134,7 @@ window.SKULL_DEBUG = {
   },
   state() {
     return {
+      hitboxVersion: HITBOX_VERSION,
       shots: localShots,
       hits: localHits,
       shootHeld: keys.shootHeld,
@@ -3154,6 +3153,9 @@ window.SKULL_DEBUG = {
         agentId: players.get(id)?.agentId,
         fullBody: !!mesh.userData.fullBody,
         visible: mesh.visible,
+        position: { x: mesh.position.x, y: mesh.position.y, z: mesh.position.z },
+        yaw: mesh.rotation.y,
+        bodyBox: getBodyBox(players.get(id)?.agentId),
       })),
     };
   },
@@ -3436,20 +3438,6 @@ function tick() {
   }
 
   if (offlineMode) offlineTick(dt);
-  else {
-    // Smooth toward authoritative poses without extrapolating through walls.
-    const blend = 1 - Math.exp(-frameDt / 0.05);
-    for (const mesh of remoteMeshes.values()) {
-      const p = mesh.userData.netPose;
-      if (!p || !mesh.visible) continue;
-      const bob = mesh.userData.hoverBob ? Math.sin(performance.now() * 0.004) * 0.12 : 0;
-      mesh.position.x += (p.x - mesh.position.x) * blend;
-      mesh.position.y += ((p.y || EYE) - EYE + bob - mesh.position.y) * blend;
-      mesh.position.z += (p.z - mesh.position.z) * blend;
-      const turn = p.yaw - mesh.rotation.y;
-      mesh.rotation.y += Math.atan2(Math.sin(turn), Math.cos(turn)) * blend;
-    }
-  }
   updateMapGameplay(dt, Date.now());
   updateBolts(dt);
   updateTracers();

@@ -4,14 +4,15 @@ const http = require('http');
 const express = require('express');
 const { WebSocketServer } = require('ws');
 
+async function main() {
+const { EYE_HEIGHT, HITBOX_VERSION, intersectBody } = await import('../public/js/body-geometry.mjs');
 const PORT = process.env.PORT || 3000;
 const MAX_PLAYERS = 4;
 const TICK_MS = 50;
 const MATCH_SECONDS = 180;
 const PLAYER_HP = 100;
 const RESPAWN_MS = 3000;
-const HIT_RADIUS = 0.95;
-const PLAYER_HEIGHT = 1.65;
+const PLAYER_HEIGHT = EYE_HEIGHT;
 
 const MAP_DEFS = {
   stadium: { half: 58, spawnR: 48 },
@@ -144,6 +145,10 @@ const AGENTS = {
 };
 
 const app = express();
+app.get('/version', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ hitboxVersion: HITBOX_VERSION, revision: process.env.RENDER_GIT_COMMIT || process.env.BUILD_REVISION || null });
+});
 app.get('/health', (_req, res) => {
   res.json({ ok: true, players: players.size, map: mapId });
 });
@@ -569,22 +574,9 @@ function tryShoot(shooter, click) {
 
   for (const target of players.values()) {
     if (target.id === shooter.id || !target.alive) continue;
-    // Ray vs sphere at chest
-    const ox = shooter.x;
-    const oy = shooter.y;
-    const oz = shooter.z;
-    const cx = target.x;
-    const cy = target.y - 0.2;
-    const cz = target.z;
-    const fx = ox - cx;
-    const fy = oy - cy;
-    const fz = oz - cz;
-    const b = fx * dirX + fy * dirY + fz * dirZ;
-    const c = fx * fx + fy * fy + fz * fz - HIT_RADIUS * HIT_RADIUS;
-    const disc = b * b - c;
-    if (disc < 0) continue;
-    const t = -b - Math.sqrt(disc);
-    if (t > 0.2 && t < bestT && t <= wallT) {
+    const t = intersectBody(shooter.x, shooter.y, shooter.z,
+      dirX, dirY, dirZ, target, Math.min(bestT, wallT));
+    if (t < bestT && t <= wallT) {
       bestT = t;
       best = target;
     }
@@ -853,5 +845,11 @@ setInterval(() => {
 server.listen(PORT, () => {
   console.log(`SKULLBOND online → http://localhost:${PORT}`);
   console.log(`WebSocket → ws://localhost:${PORT}/ws  (max ${MAX_PLAYERS})`);
+});
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
 });
 

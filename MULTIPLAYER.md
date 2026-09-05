@@ -20,6 +20,22 @@ For a different host, open the game with `?ws=https://your-host.example`. The
 client remembers that value in local storage until a failed connection clears
 it.
 
+## Live Hitbox Verification
+
+`GET /version` on the multiplayer host reports `hitboxVersion` and the Render
+commit (or `BUILD_REVISION`, otherwise null). The body-box fix identifies as
+`20260904-body-box-1`; the browser reports the same value through
+`SKULL_DEBUG.state().hitboxVersion`. Verify both hosts when deploying the client
+and server separately.
+
+Run `node tools/live-hitbox.mjs https://skullbond-gs-4p-2026.onrender.com`
+to check the deployed geometry artifact for all six scales, rotated/elevated
+targets, body edges, misses, range clipping, and signed vertical rays. It does
+not launch a server or load local game modules. This is not a gameplay test.
+Live gameplay still needs head/torso/feet shots, near misses, wall occlusion,
+and moving-target visual checks. Remote poses now use the latest received
+snapshot directly; 20 Hz stepping and network latency remain without rewind.
+
 ## Local Verification
 
 Start the server:

@@ -1,6 +1,8 @@
 /** Fixed Skullbond agents. IDs remain stable for saved selections and multiplayer.
  * Portraits are individual 3:4 posters, not sprite-sheet crops; display them whole.
  */
+import { AGENT_SCALES } from './body-geometry.mjs?v=20260904a';
+
 export const AGENTS = [
   {
     id: 'skullpepe',
@@ -19,7 +21,7 @@ export const AGENTS = [
     // gameplay multipliers
     speedMul: 1.08,
     hpMul: 1.0,
-    scale: 1.0,
+    scale: AGENT_SCALES.skullpepe,
     tint: 0x6baf6e,
   },
   {
@@ -38,7 +40,7 @@ export const AGENTS = [
     kit: 'RAY GUN',
     speedMul: 1.0,
     hpMul: 0.95,
-    scale: 1.0,
+    scale: AGENT_SCALES.daisy,
     tint: 0xe5392d,
   },
   {
@@ -57,7 +59,7 @@ export const AGENTS = [
     kit: 'RAY GUN',
     speedMul: 1.2,
     hpMul: 0.8,
-    scale: 0.78,
+    scale: AGENT_SCALES.mini,
     tint: 0x2e6e3e,
   },
   {
@@ -76,7 +78,7 @@ export const AGENTS = [
     kit: 'RAY GUN',
     speedMul: 0.88,
     hpMul: 1.35,
-    scale: 1.22,
+    scale: AGENT_SCALES.boss,
     tint: 0xb56a4d,
   },
   {
@@ -95,7 +97,7 @@ export const AGENTS = [
     kit: 'RAY GUN',
     speedMul: 1.05,
     hpMul: 0.9,
-    scale: 0.92,
+    scale: AGENT_SCALES.drone,
     tint: 0x8e8e8e,
     hover: true,
   },
@@ -115,7 +117,7 @@ export const AGENTS = [
     kit: 'RAY GUN',
     speedMul: 1.02,
     hpMul: 1.05,
-    scale: 1.05,
+    scale: AGENT_SCALES.hazard,
     tint: 0xfff2b3,
   },
 ];
