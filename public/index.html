@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta http-equiv="Cache-Control" content="no-store" />
   <title>SKULLBOND — 5 ARENAS</title>
-  <link rel="stylesheet" href="/css/style.css" />
+  <link rel="stylesheet" href="/css/style.css?v=20260904h" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Black+Ops+One&display=swap" rel="stylesheet" />
@@ -148,6 +148,26 @@
     <button id="menuBtn" class="cta cta-ghost" type="button">BACK TO MENU</button>
     <span id="sessionHint">ESC RELEASES MOUSE</span>
   </div>
+  <section id="mobileSpectator" hidden aria-label="Mobile spectator controls">
+    <div class="motion-tools">
+      <span id="motionStatus" role="status">Motion off. Drag to look.</span>
+      <div class="motion-actions">
+        <button id="motionBtn" type="button" aria-pressed="false">Enable Motion</button>
+        <button id="recenterBtn" type="button" disabled>Recenter</button>
+        <button id="zoomBtn" type="button">Reset Zoom</button>
+      </div>
+    </div>
+    <div class="flight-pad" role="group" aria-label="Hold to fly">
+      <span>HOLD TO FLY</span>
+      <button type="button" data-fly="forward" aria-label="Fly forward">FORWARD</button>
+      <button type="button" data-fly="back" aria-label="Fly backward">BACK</button>
+    </div>
+    <div class="flight-pad altitude" role="group" aria-label="Hold to change altitude">
+      <span>ALTITUDE</span>
+      <button type="button" data-fly="up" aria-label="Fly up">UP +</button>
+      <button type="button" data-fly="down" aria-label="Fly down">DOWN -</button>
+    </div>
+  </section>
   <canvas id="game" tabindex="0"></canvas>
 
   <script type="importmap">
@@ -159,6 +179,6 @@
   }
   </script>
   <script type="module" src="/js/brand.js?v=20260824c"></script>
-  <script type="module" src="/js/client.js?v=20260904g"></script>
+  <script type="module" src="/js/client.js?v=20260904h"></script>
 </body>
 </html>

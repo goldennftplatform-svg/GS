@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { createMobileSpectator } from './mobile-spectator.js?v=20260904h';
 import { applyAgentSurfaces } from './agent-surfaces.js?v=20260904d';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 // Build-stamped imports — bump these versions so browsers drop stale modules
@@ -154,6 +155,10 @@ let sessionId = 0;
 let cancelConnect = null;
 let endMatchTimer = 0;
 const countdownTimers = [];
+const mobileSpectator = createMobileSpectator(canvas, () => ({ yaw, pitch }), (nextYaw, nextPitch) => {
+  yaw = nextYaw;
+  pitch = nextPitch;
+});
 
 /** Solid XZ boxes for collision (axis-aligned). */
 const WALLS = [];
@@ -1954,6 +1959,7 @@ function updateHud(state) {
 }
 
 function beginMission(title) {
+  if (spectatorMode) mobileSpectator.start();
   sessionControls.classList.remove('hidden');
   hud.classList.toggle('spectating', spectatorMode);
   gunGroup.visible = !spectatorMode;
@@ -1965,7 +1971,7 @@ function beginMission(title) {
   selectScreen?.classList.add('hidden');
   hud.classList.remove('hidden');
   overlay.classList.add('hidden');
-  showCenter(title + ' · CLICK TO LOCK MOUSE', 2400);
+  showCenter(title + (mobileSpectator.active ? ' · DRAG TO LOOK / PINCH TO ZOOM' : ' · CLICK TO LOCK MOUSE'), 2400);
   canvas.focus();
   // May fail outside a direct gesture; the first canvas click only locks the mouse.
   tryPointerLock();
@@ -2786,6 +2792,7 @@ function clearInput() {
 }
 
 function backToMenu() {
+  mobileSpectator.stop();
   // Invalidate callbacks before closing: an old socket must never own a new session.
   sessionId++;
   cancelConnect?.();
@@ -3021,6 +3028,7 @@ function inMatch() {
 }
 
 function tryPointerLock() {
+  if (mobileSpectator.active) return;
   if (document.pointerLockElement === canvas) return;
   const req = canvas.requestPointerLock?.();
   if (req && typeof req.catch === 'function') req.catch(() => {});
@@ -3504,7 +3512,7 @@ function tick() {
   // Right-click aim-down-sights: FOV zoom + gun centers up
   const adsTarget = keys.ads && pointerLocked ? 1 : 0;
   adsBlend += (adsTarget - adsBlend) * Math.min(1, dt * 10);
-  const targetFov = 74 - adsBlend * 26;
+  const targetFov = spectatorMode && mobileSpectator.active ? mobileSpectator.fov : 74 - adsBlend * 26;
   if (Math.abs(camera.fov - targetFov) > 0.01) {
     camera.fov = targetFov;
     camera.updateProjectionMatrix();
@@ -3524,10 +3532,11 @@ function tick() {
   }
 
   if (offlineMode) offlineTick(dt);
-  if (spectatorMode && pointerLocked) {
-    const forward = Number(keys.f) - Number(keys.b);
+  if (spectatorMode && (pointerLocked || mobileSpectator.active)) {
+    const mobile = mobileSpectator.movement();
+    const forward = Number(keys.f) - Number(keys.b) + mobile.forward;
     const right = Number(keys.r) - Number(keys.l);
-    const up = Number(keys.jump) - Number(!!keys.down);
+    const up = Number(keys.jump) - Number(!!keys.down) + mobile.up;
     const direction = dirFromYawPitch(yaw, pitch).multiplyScalar(forward);
     direction.x += Math.cos(yaw) * right;
     direction.z -= Math.sin(yaw) * right;

@@ -1033,6 +1033,31 @@ button:focus-visible, input:focus-visible {
   letter-spacing: 1px;
 }
 #sessionControls.hidden { display: none; }
+#mobileSpectator[hidden] { display: none; }
+#mobileSpectator { position: fixed; inset: 0; z-index: 39; pointer-events: none; color: var(--cream, #fff2b3); font: 12px/1.4 'Black Ops One', monospace; }
+#mobileSpectator button { min-width: 44px; min-height: 44px; padding: 8px 12px; border: 1px solid #6baf6e; border-radius: 6px; background: #101e17; color: #fff2b3; font: inherit; cursor: pointer; pointer-events: auto; touch-action: manipulation; }
+#mobileSpectator button:focus-visible { outline: 3px solid #fff2b3; outline-offset: 2px; }
+#mobileSpectator button:disabled { opacity: .45; cursor: default; }
+#mobileSpectator button.held, #mobileSpectator button[aria-pressed="true"] { background: #6baf6e; color: #0a100c; }
+.motion-tools { position: absolute; top: calc(env(safe-area-inset-top, 0px) + 60px); left: max(12px, env(safe-area-inset-left)); right: max(12px, env(safe-area-inset-right)); display: grid; justify-items: center; gap: 5px; }
+#motionStatus { padding: 3px 9px; border-radius: 4px; background: #0a100ce6; }
+.motion-actions { display: flex; gap: 6px; }
+.flight-pad { position: absolute; bottom: max(16px, env(safe-area-inset-bottom)); left: max(12px, env(safe-area-inset-left)); display: grid; gap: 6px; width: 104px; text-align: center; }
+.flight-pad span { background: #0a100ce6; border-radius: 4px; font-size: 10px; letter-spacing: 1px; }
+#mobileSpectator .flight-pad button { min-height: 52px; touch-action: none; user-select: none; -webkit-user-select: none; }
+.flight-pad.altitude { left: auto; right: max(12px, env(safe-area-inset-right)); }
+.mobile-spectator #game { touch-action: none; }
+.mobile-spectator #sessionControls { top: max(6px, env(safe-area-inset-top)); width: calc(100% - 24px); padding: 0; border: 0; background: transparent; justify-content: space-between; flex-wrap: nowrap; }
+.mobile-spectator #sessionLabel { background: #0a100ce6; padding: 8px; font-size: 10px; }
+.mobile-spectator #sessionHint, .mobile-spectator #hud .hud-top, .mobile-spectator #radar, .mobile-spectator #mapTag { display: none; }
+.mobile-spectator #scoreboard { top: 150px; font-size: 9px; }
+.mobile-spectator #killFeed { top: 210px; font-size: 9px; }
+@media (max-height: 500px) and (orientation: landscape) {
+  .mobile-spectator #scoreboard, .mobile-spectator #killFeed { display: none; }
+  .motion-tools { top: auto; bottom: max(12px, env(safe-area-inset-bottom)); left: 124px; right: 124px; }
+  .motion-actions { flex-wrap: wrap; justify-content: center; }
+  #mobileSpectator button { padding: 6px 8px; font-size: 11px; }
+}
 #sessionControls .cta { padding: 12px 16px; font-size: 10px; min-height: 44px; }
 #sessionHint { flex-basis: 100%; text-align: center; font-size: 10px; line-height: 1.6; }
 #hud.spectating .hud-score,
