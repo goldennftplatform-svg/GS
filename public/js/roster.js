@@ -1,7 +1,7 @@
 /** Fixed Skullbond agents. IDs remain stable for saved selections and multiplayer.
  * Portraits are individual 3:4 posters, not sprite-sheet crops; display them whole.
  */
-import { AGENT_SCALES } from './body-geometry.mjs?v=20260904a';
+import { AGENT_SCALES } from './body-geometry.mjs?v=20260904f';
 
 export const AGENTS = [
   {

@@ -5,7 +5,7 @@ const express = require('express');
 const { WebSocketServer } = require('ws');
 
 async function main() {
-const { EYE_HEIGHT, HITBOX_VERSION, intersectBody } = await import('../public/js/body-geometry.mjs');
+const { EYE_HEIGHT, HITBOX_VERSION, intersectBody, hitRegion, shotDamage } = await import('../public/js/body-geometry.mjs');
 const PORT = process.env.PORT || 3000;
 const MAX_PLAYERS = 4;
 const TICK_MS = 50;
@@ -554,9 +554,11 @@ function tryShoot(shooter, click) {
   shooter.spawnShieldUntil = 0; // firing drops your spawn protection
   if (W.mag >= 0) shooter.ammo -= 1;
 
-  let dirX = -Math.sin(shooter.yaw) * Math.cos(shooter.pitch);
-  let dirY = Math.sin(shooter.pitch);
-  let dirZ = -Math.cos(shooter.yaw) * Math.cos(shooter.pitch);
+  const shotYaw = click ? shooter.input.clickYaw : shooter.yaw;
+  const shotPitch = click ? shooter.input.clickPitch : shooter.pitch;
+  let dirX = -Math.sin(shotYaw) * Math.cos(shotPitch);
+  let dirY = Math.sin(shotPitch);
+  let dirZ = -Math.cos(shotYaw) * Math.cos(shotPitch);
   if (W.spread > 0) {
     dirX += (Math.random() - 0.5) * W.spread;
     dirY += (Math.random() - 0.5) * W.spread * 0.6;
@@ -595,6 +597,7 @@ function tryShoot(shooter, click) {
     z: shooter.z + dirZ * Math.min(bestT, W.range),
   };
 
+  const region = best ? hitRegion(impact.x, impact.y, impact.z, best) : null;
   broadcast({
     type: 'shot',
     from: shooter.id,
@@ -602,10 +605,11 @@ function tryShoot(shooter, click) {
     origin: { x: shooter.x, y: shooter.y, z: shooter.z },
     impact,
     hit: best ? best.id : null,
+    region,
   });
 
   if (best) {
-    applyDamage(best, W.dmg, W.oneShot);
+    applyDamage(best, shotDamage(W, region), W.oneShot);
     if (best.hp <= 0) {
       best.hp = 0;
       best.alive = false;
@@ -712,6 +716,8 @@ wss.on('connection', (ws) => {
         sprint: !!msg.sprint,
         shoot: !!msg.shoot,
         click: !!msg.click || !!p.input?.click,
+        clickYaw: p.input?.click ? p.input.clickYaw : yaw,
+        clickPitch: p.input?.click ? p.input.clickPitch : pitch,
         yaw,
         pitch,
         at: Date.now(),

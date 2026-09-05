@@ -2,8 +2,8 @@ import * as THREE from 'three';
 import { applyAgentSurfaces } from './agent-surfaces.js?v=20260904d';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 // Build-stamped imports — bump these versions so browsers drop stale modules
-import { AGENTS, getAgent, statBar } from './roster.js?v=20260904a';
-import { EYE_HEIGHT, MODEL_HEIGHT, HITBOX_VERSION, getBodyBox, intersectBody } from './body-geometry.mjs?v=20260904a';
+import { AGENTS, getAgent, statBar } from './roster.js?v=20260904f';
+import { EYE_HEIGHT, MODEL_HEIGHT, HITBOX_VERSION, getBodyBox, getHeadBox, intersectBody, hitRegion, shotDamage } from './body-geometry.mjs?v=20260904f';
 import { MAPS, getMap, buildMapById, bindThree, PAD_SPOTS, GOLD_SPOTS } from './maps.js?v=20260904d';
 import { WEAPONS, GOLD_SHOTS, GUN_RANK, getWeapon } from './weapons.js?v=20260825c';
 import { BRAND } from './brand.js?v=20260825c';
@@ -221,6 +221,8 @@ scene.add(camera);
 
 /** @type {{ agent?: THREE.Object3D, raygun?: THREE.Object3D, crate?: THREE.Object3D, server?: THREE.Object3D }} */
 const models = {};
+let modelRevision = 0;
+let lastStateAt = 0;
 const gltfLoader = new GLTFLoader();
 
 function groundNormalize(root, targetHeight) {
@@ -323,7 +325,23 @@ function mountViewmodel(weaponId = 'raygun') {
     });
     gunGroup.add(gun);
   }
-  muzzleFlash.position.set(0.06, -0.2, -0.85);
+  // Frontmost authored muzzle mesh, measured in gunGroup space before ADS/recoil.
+  gunGroup.updateWorldMatrix(true, true);
+  const localBounds = new THREE.Box3();
+  const vertices = [];
+  gunGroup.traverse(o => {
+    if (!o.isMesh) return;
+    const matrix = new THREE.Matrix4().copy(gunGroup.matrixWorld).invert().multiply(o.matrixWorld);
+    const positions = o.geometry.attributes.position;
+    for (let i = 0; i < positions.count; i++) {
+      const v = new THREE.Vector3().fromBufferAttribute(positions, i).applyMatrix4(matrix);
+      vertices.push(v);
+      localBounds.expandByPoint(v);
+    }
+  });
+  const front = new THREE.Box3();
+  for (const v of vertices) if (v.z <= localBounds.min.z + 1e-5) front.expandByPoint(v);
+  front.getCenter(muzzleFlash.position);
   muzzleFlash.color = new THREE.Color(weaponId === 'gold' ? 0xffd700 : PALETTE.green);
   gunGroup.add(muzzleFlash);
 }
@@ -366,40 +384,33 @@ async function loadGameAssets() {
     mohawk: '/assets/models/mohawk_head.glb',
   };
   try {
-    const entries = await Promise.all(
-      Object.entries(urls).map(async ([key, url]) => [key, await loadModel(url)])
-    );
-    for (const [key, sceneRoot] of entries) models[key] = sceneRoot;
-
-    models.agent = groundNormalize(models.agent, MODEL_HEIGHT);
-    models.crate = groundNormalize(models.crate, 1.1);
-    models.server = groundNormalize(models.server, 3.4);
-    models.hazard = groundNormalize(models.hazard, 2.2);
-    models.bag = groundNormalize(models.bag, 1.0);
-        models.heart = groundNormalize(models.heart, 0.7);
-    models.daisy = groundNormalize(models.daisy, 1.15);
-    models.badge = groundNormalize(models.badge, 1.0);
-    models.skate = groundNormalize(models.skate, 0.35);
-    models.barrel = groundNormalize(models.barrel, 1.35);
-    models.tomb = groundNormalize(models.tomb, 1.6);
-    models.checker = groundNormalize(models.checker, 1.8);
-    models.pipes = groundNormalize(models.pipes, 2.4);
-    models.mohawk = groundNormalize(models.mohawk, 1.4);
-
-    models.agent.traverse((o) => {
-      if (o.isMesh) {
-        o.castShadow = true;
-        o.receiveShadow = true;
+    const heights = { agent: MODEL_HEIGHT, crate: 1.1, server: 3.4, hazard: 2.2,
+      bag: 1, heart: 0.7, daisy: 1.15, badge: 1, skate: 0.35, barrel: 1.35,
+      tomb: 1.6, checker: 1.8, pipes: 2.4, mohawk: 1.4 };
+    const results = await Promise.allSettled(Object.entries(urls).map(async ([key, url]) => {
+      const root = await loadModel(url);
+      if (heights[key]) groundNormalize(root, heights[key]);
+      if (key === 'agent') root.traverse(o => {
+        if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; }
+      });
+      if (['agent', 'badge', 'mohawk'].includes(key)) {
+        models[key] = root;
+        modelRevision++;
+        syncRemotes(offlineMatch ? offlineMatch.roster : [...players.values()]);
       }
+      return [key, root];
+    }));
+    // Publish props together: decorating with a partial set changes subsequent
+    // collision-based placement and can give two clients different cover.
+    results.forEach(r => {
+      if (r.status === 'fulfilled') models[r.value[0]] = r.value[1];
+      else console.warn('Asset load failed', r.reason);
     });
     mountViewmodel(currentWeaponId());
     decorateMapProps();
     refreshPadMeshes();
-    for (const [, mesh] of remoteMeshes) scene.remove(mesh);
-    remoteMeshes.clear();
-    if (offlineMatch) syncRemotes(offlineMatch.roster);
-    else if (players.size) syncRemotes([...players.values()]);
-    if (bootStatus) bootStatus.textContent = 'ASSETS LOCKED — READY';
+    if (bootStatus) bootStatus.textContent = results.some(r => r.status === 'rejected')
+      ? 'PARTIAL ASSETS - STILL PLAYABLE' : 'ASSETS LOCKED - READY';
   } catch (err) {
     console.warn('Asset load failed', err);
     fallbackGun();
@@ -705,19 +716,20 @@ function resolveCollision(p, radius = 0.45) {
   }
 }
 
-function makeAgentMesh(agentOrColor) {
+function makeAgentMesh(agentOrColor, useModels = true) {
   const agent =
     typeof agentOrColor === 'string' || typeof agentOrColor === 'number'
       ? { color: agentOrColor, tint: agentOrColor, scale: 1, hover: false, id: 'skullpepe' }
       : agentOrColor || getAgent('skullpepe');
   const color = agent.color || agent.tint || '#6BAF6E';
 
-  if (models.agent) {
+  if (useModels && (agent.id === 'drone' ? models.badge : models.agent)) {
     // Real-sample skins — unique bodies built from the NSES asset kit
     if (agent.id === 'drone' && models.badge) {
       // Keep the approved hovering badge chassis.
       const g = new THREE.Group();
-      const disk = applyAgentSurfaces(standAndSize(models.badge, 1.05), agent.id);
+      const disk = new THREE.Group();
+      disk.add(applyAgentSurfaces(standAndSize(models.badge, 1.05), agent.id));
       disk.traverse((o) => {
         if (o.isMesh) {
           o.castShadow = true;
@@ -771,20 +783,22 @@ function makeAgentMesh(agentOrColor) {
 
   const g = new THREE.Group();
   g.userData.fullBody = true;
+  g.userData.fallback = true;
   const body = getBodyBox(agent.id);
+  const headBox = getHeadBox(agent.id);
   const width = body.max[0] - body.min[0];
-  const height = body.max[1] - body.min[1];
+  const height = headBox.min[1] - body.min[1];
   const depth = body.max[2] - body.min[2];
   const cx = (body.min[0] + body.max[0]) / 2;
   const cz = (body.min[2] + body.max[2]) / 2;
   const bodyMat = new THREE.MeshStandardMaterial({ color, roughness: 0.7 });
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(width * 0.8, height * 0.6, depth * 0.8), bodyMat);
-  torso.position.set(cx, body.min[1] + height * 0.3, cz);
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(width * 0.8, height, depth * 0.8), bodyMat);
+  torso.position.set(cx, body.min[1] + height / 2, cz);
   const head = new THREE.Mesh(
-    new THREE.BoxGeometry(width, height * 0.4, depth),
+    new THREE.BoxGeometry(...headBox.max.map((v, i) => v - headBox.min[i])),
     new THREE.MeshStandardMaterial({ color: PALETTE.cream })
   );
-  head.position.set(cx, body.max[1] - height * 0.2, cz);
+  head.position.fromArray(headBox.min.map((v, i) => (v + headBox.max[i]) / 2));
   g.add(torso, head);
   return g;
 }
@@ -946,7 +960,7 @@ function decorateMapProps() {
       [36, -36],
       [36, 36],
     ]) {
-      placeProp(models.hazard, x, z, { collide: 0.55 });
+      if (spotClear(x, z, 3.4, 9)) placeProp(models.hazard, x, z, { collide: 0.55 });
     }
   }
 }
@@ -1144,34 +1158,22 @@ function tickPads(now) {
 function castWalls(ox, oy, oz, dx, dy, dz, maxT) {
   let best = maxT;
   for (const w of WALLS) {
-    let tmin = 0;
-    let tmax = best;
-    if (Math.abs(dx) < 1e-8) {
-      if (ox < w.minX || ox > w.maxX) continue;
-    } else {
-      let t1 = (w.minX - ox) / dx;
-      let t2 = (w.maxX - ox) / dx;
-      if (t1 > t2) [t1, t2] = [t2, t1];
-      tmin = Math.max(tmin, t1);
-      tmax = Math.min(tmax, t2);
-      if (tmin > tmax) continue;
+    let near = 0, far = best;
+    const origin = [ox, oy, oz], dir = [dx, dy, dz];
+    const min = [w.minX, w.base ?? 0, w.minZ], max = [w.maxX, w.top ?? 99, w.maxZ];
+    for (let axis = 0; axis < 3; axis++) {
+      if (Math.abs(dir[axis]) < 1e-12) {
+        if (origin[axis] < min[axis] || origin[axis] > max[axis]) { far = -1; break; }
+      } else {
+        let a = (min[axis] - origin[axis]) / dir[axis];
+        let b = (max[axis] - origin[axis]) / dir[axis];
+        if (a > b) [a, b] = [b, a];
+        near = Math.max(near, a);
+        far = Math.min(far, b);
+        if (near > far) break;
+      }
     }
-    if (Math.abs(dz) < 1e-8) {
-      if (oz < w.minZ || oz > w.maxZ) continue;
-    } else {
-      let t1 = (w.minZ - oz) / dz;
-      let t2 = (w.maxZ - oz) / dz;
-      if (t1 > t2) [t1, t2] = [t2, t1];
-      tmin = Math.max(tmin, t1);
-      tmax = Math.min(tmax, t2);
-      if (tmin > tmax) continue;
-    }
-    const base = w.base != null ? w.base : 0;
-    const top = w.top != null ? w.top : 99;
-    const hy = oy + dy * Math.max(tmin, 0);
-    if (hy >= base - 0.05 && hy <= top + 0.05 && tmin < best) {
-      best = Math.max(tmin, 0);
-    }
+    if (near <= far && near < best) best = near;
   }
   return best;
 }
@@ -1439,6 +1441,19 @@ function makePlayerTag(name, color) {
   return sprite;
 }
 
+function removeRemote(mesh) {
+  mesh.removeFromParent();
+  clearTimeout(mesh.userData._flashT);
+  // Materials are entity-local; GLB geometry and skin textures are shared.
+  mesh.traverse(o => {
+    if (o.isSprite) o.material.map?.dispose();
+    if (mesh.userData.fallback && o.isMesh) o.geometry.dispose();
+    if (o.material) {
+      for (const material of Array.isArray(o.material) ? o.material : [o.material]) material.dispose();
+    }
+  });
+}
+
 function syncRemotes(list) {
   const seen = new Set();
   for (const p of list) {
@@ -1449,9 +1464,21 @@ function syncRemotes(list) {
       continue;
     }
     let mesh = remoteMeshes.get(p.id);
-    if (!mesh) {
+    if (!mesh || mesh.userData.modelRevision !== modelRevision) {
       const agent = getAgent(p.agentId || 'skullpepe');
-      mesh = makeAgentMesh({ ...agent, color: p.color || agent.color });
+      const previous = mesh;
+      try {
+        mesh = makeAgentMesh({ ...agent, color: p.color || agent.color });
+      } catch (error) {
+        console.warn('Remote model failed', p.id, p.agentId, error);
+        mesh = makeAgentMesh(agent, false);
+      }
+      mesh.userData.modelRevision = modelRevision;
+      mesh.traverse(o => {
+        if (o.isMesh) o.onAfterRender = (_renderer, _scene, view) => {
+          if (view === camera) mesh.userData.renderedAt = performance.now();
+        };
+      });
       const tag = makePlayerTag(p.name, p.color || agent.color);
       const bounds = new THREE.Box3().setFromObject(mesh);
       tag.position.y = (bounds.max.y + 0.25) / mesh.scale.y;
@@ -1459,6 +1486,7 @@ function syncRemotes(list) {
       mesh.add(tag);
       remoteMeshes.set(p.id, mesh);
       scene.add(mesh);
+      if (previous) removeRemote(previous);
     }
     mesh.visible = !!p.alive;
     // No extra render delay or cosmetic body displacement without server rewind.
@@ -1467,7 +1495,7 @@ function syncRemotes(list) {
   }
   for (const [id, mesh] of remoteMeshes) {
     if (!seen.has(id)) {
-      scene.remove(mesh);
+      removeRemote(mesh);
       remoteMeshes.delete(id);
       players.delete(id);
     }
@@ -1632,6 +1660,7 @@ const _aimOrigin = new THREE.Vector3();
 const _aimDir = new THREE.Vector3();
 const _aimEnd = new THREE.Vector3();
 const _yAxis = new THREE.Vector3(0, 1, 0);
+let lastTracer = null;
 
 /** Sync look angles onto the camera and return true aim ray (where you look). */
 function getAimRay() {
@@ -1640,30 +1669,46 @@ function getAimRay() {
   camera.rotation.x = pitch;
   camera.rotation.z = 0;
   camera.updateMatrixWorld(true);
-  _aimOrigin.copy(camera.position);
+  const me = players.get(myId);
+  _aimOrigin.set(me?.x ?? camera.position.x, me?.y ?? camera.position.y, me?.z ?? camera.position.z);
   camera.getWorldDirection(_aimDir); // camera forward (-Z) in world space
   if (_aimDir.lengthSq() < 1e-6) _aimDir.set(0, 0, -1);
   else _aimDir.normalize();
   return { origin: _aimOrigin, dir: _aimDir };
 }
 
-function spawnTracer(origin, dir, dist = 48, color = 0x9dff9a) {
-  const len = Math.max(0.5, dist);
-  _aimEnd.copy(origin).addScaledVector(dir, len);
+function spawnTracer(origin, dir, dist, weapon, local = false, boltSize = weapon.boltSize) {
+  _aimEnd.copy(origin).addScaledVector(dir, dist);
+  const start = local ? muzzleFlash.getWorldPosition(new THREE.Vector3()) : origin.clone();
+  const direction = _aimEnd.clone().sub(start).normalize();
+  // Cosmetic muzzle-to-impact path must not pass through nearby cover either.
+  const len = castWalls(start.x, start.y, start.z, direction.x, direction.y, direction.z, start.distanceTo(_aimEnd));
+  if (len < 0.001) return;
   const beam = new THREE.Mesh(
     new THREE.CylinderGeometry(0.06, 0.018, len, 6),
     new THREE.MeshBasicMaterial({
-      color,
+      color: weapon.tracer,
       transparent: true,
       opacity: 0.95,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     })
   );
-  beam.position.copy(origin).addScaledVector(dir, len * 0.5);
-  beam.quaternion.setFromUnitVectors(_yAxis, dir);
+  beam.position.copy(start).addScaledVector(direction, len * 0.5);
+  beam.quaternion.setFromUnitVectors(_yAxis, direction);
+  if (local) {
+    const evidence = lastTracer = { start: start.toArray(), impact: _aimEnd.toArray(),
+      end: start.clone().addScaledVector(direction, len).toArray(), fov: camera.fov, rendered: false };
+    beam.onAfterRender = (_renderer, _scene, view) => {
+      if (view !== camera) return;
+      evidence.rendered = true;
+      evidence.startNdc = start.clone().project(camera).toArray();
+      evidence.endNdc = start.clone().addScaledVector(direction, len).project(camera).toArray();
+    };
+  }
   scene.add(beam);
   tracers.push({ mesh: beam, born: performance.now(), ttl: 140 });
+  spawnBolt(start, direction, local ? myId : 'remote', weapon.boltColor, boltSize, len);
 }
 
 function spawnNetworkTracer(originData, impactData, weaponId) {
@@ -1674,8 +1719,7 @@ function spawnNetworkTracer(originData, impactData, weaponId) {
   if (dist < 0.01) return;
   remoteShotsSeen += 1;
   dir.multiplyScalar(1 / dist);
-  spawnTracer(origin, dir, dist, getWeapon(weaponId || 'raygun').tracer);
-  spawnBolt(origin, dir.clone(), 'remote', getWeapon(weaponId || 'raygun').boltColor, 0.055);
+  spawnTracer(origin, dir, dist, getWeapon(weaponId || 'raygun'), false, 0.055);
 }
 
 function updateTracers() {  for (let i = tracers.length - 1; i >= 0; i--) {
@@ -1775,7 +1819,7 @@ function updateGoos(dt) {
   }
 }
 
-function spawnBolt(origin, dir, fromId, color = 0x6baf6e, size = 0.16) {
+function spawnBolt(origin, dir, fromId, color = 0x6baf6e, size = 0.16, dist = BOLT_SPEED * BOLT_LIFE) {
   while (bolts.length >= MAX_BOLTS) {
     const old = bolts.shift();
     scene.remove(old.mesh);
@@ -1786,14 +1830,14 @@ function spawnBolt(origin, dir, fromId, color = 0x6baf6e, size = 0.16) {
     new THREE.SphereGeometry(size, 8, 8),
     new THREE.MeshBasicMaterial({ color })
   );
-  mesh.position.copy(origin).addScaledVector(dir, 1.2);
+  mesh.position.copy(origin);
   scene.add(mesh);
   bolts.push({
     mesh,
     vx: dir.x * BOLT_SPEED,
     vy: dir.y * BOLT_SPEED,
     vz: dir.z * BOLT_SPEED,
-    life: BOLT_LIFE,
+    life: Math.min(BOLT_LIFE, dist / BOLT_SPEED),
     fromId,
   });
 }
@@ -2138,8 +2182,8 @@ function applyShot(shooter, now) {
   }
 
   // Hip-fire magnetism — GE shipped with aim assist, mouse gets a soft cone
-  if (shooter.id === myId) {
-    const assist = adsBlend > 0.5 ? 0.18 : 0.5;
+  if (shooter.id === myId && adsBlend < 0.5) {
+    const assist = 0.5;
     let snap = null;
     let bestDot = Math.cos(0.085); // ~5 degree cone
     const to = new THREE.Vector3();
@@ -2160,8 +2204,6 @@ function applyShot(shooter, now) {
   }
 
   const tWall = castWalls(origin.x, origin.y, origin.z, dir.x, dir.y, dir.z, W.range);
-  spawnTracer(origin, dir, Math.min(tWall, W.range), W.tracer);
-  spawnBolt(origin, dir, shooter.id, W.boltColor, W.boltSize);
 
   // Hitscan — walls clip the ray, bolt is VFX only
   let best = null;
@@ -2177,9 +2219,11 @@ function applyShot(shooter, now) {
       best = target;
     }
   }
+  spawnTracer(origin, dir, bestT, W, shooter.id === myId);
   if (best) {
     // LIVE & LET DIE hits harder — fights have to bleed lives for the mode to resolve
-    const dmgOut = W.dmg * (offlineMatch.mode === 'l2t' ? 1.3 : 1);
+    const region = hitRegion(origin.x + dir.x * bestT, origin.y + dir.y * bestT, origin.z + dir.z * bestT, best);
+    const dmgOut = shotDamage(W, region) * (offlineMatch.mode === 'l2t' ? 1.3 : 1);
     const absorbed = W.oneShot ? 0 : Math.min(best.armor || 0, dmgOut * ARMOR_ABSORB);
     best.armor = Math.max(0, (best.armor || 0) - absorbed);
     best.hp -= dmgOut - absorbed;
@@ -2335,14 +2379,21 @@ function updateBots(dt, now) {
     }
     if (!target) continue;
     dist = dist || 0.001;
-    const dx = (target.x - bot.x) / dist;
-    const dz = (target.z - bot.z) / dist;
+    // Entity Y is eye height for every agent, not the center of its scaled body.
+    // A horizontal eye-height ray passes entirely above Mini.
+    const body = getBodyBox(target.agentId);
+    const cx = (body.min[0] + body.max[0]) / 2, cz = (body.min[2] + body.max[2]) / 2;
+    const c = Math.cos(target.yaw), s = Math.sin(target.yaw);
+    const dx = target.x + c * cx + s * cz - bot.x;
+    const dy = target.y - EYE + (body.min[1] + body.max[1]) / 2 - bot.y;
+    const dz = target.z - s * cx + c * cz - bot.z;
+    const aimDist = Math.hypot(dx, dy, dz) || 0.001;
     bot.yaw = Math.atan2(-dx, -dz) + Math.sin(now * 0.0015 + bot.spawnIndex) * 0.15;
-    bot.pitch = THREE.MathUtils.clamp((target.y - bot.y) * 0.02, -0.4, 0.4);
+    bot.pitch = THREE.MathUtils.clamp(Math.atan2(dy, Math.hypot(dx, dz)), -1.4, 1.4);
 
     // Line-of-sight gate — no more shooting through walls
-    const losT = castWalls(bot.x, bot.y, bot.z, dx, 0, dz, dist);
-    const visible = losT >= dist - 0.6 && Math.abs(target.y - bot.y) < 3;
+    const losT = castWalls(bot.x, bot.y, bot.z, dx / aimDist, dy / aimDist, dz / aimDist, aimDist);
+    const visible = losT >= aimDist - 0.6 && Math.abs(target.y - bot.y) < 3;
     // Reaction memory: bots need sustained sight before they open fire
     if (visible) {
       if (!bot.sawAt) bot.sawAt = now;
@@ -2589,6 +2640,7 @@ function connect(name, role = 'player') {
     }
     if (msg.type === 'state') {
       if (!settled) return;
+      lastStateAt = performance.now();
       if (msg.mapId && msg.mapId !== selectedMapId) loadSelectedMap(msg.mapId);
       mapRuntime.netState = msg.mapRuntime || null;
       syncRemotes(msg.players);
@@ -2609,7 +2661,15 @@ function connect(name, role = 'player') {
     }
     if (msg.type === 'shot') {
       if (msg.from !== myId) spawnNetworkTracer(msg.origin, msg.impact, msg.weapon);
-      else flashMuzzle();
+      else {
+        const origin = new THREE.Vector3(msg.origin.x, msg.origin.y, msg.origin.z);
+        const direction = new THREE.Vector3(msg.impact.x, msg.impact.y, msg.impact.z).sub(origin);
+        const distance = direction.length();
+        spawnTracer(origin, direction.normalize(), distance, getWeapon(msg.weapon), true);
+        flashMuzzle();
+        playGun(getWeapon(msg.weapon).sound);
+      }
+      spawnImpact(msg.impact.x, msg.impact.y, msg.impact.z, !!msg.hit);
       if (msg.hit) {
         flashEntityById(msg.hit);
         if (msg.from === myId) {
@@ -2735,11 +2795,17 @@ function backToMenu() {
   clearTimeout(showCenter._t);
   clearTimeout(showDmgDir._t);
   clearInput();
+  // Diagnostic state belongs to the old session, never the next solo match.
+  botsFrozen = false;
+  matchSkipCountdown = false;
+  window.SKULL_DEBUG?.unPhoto();
   myId = null;
   spectatorMode = false;
   offlineMode = false;
   offlineMatch = null;
   localAlive = false;
+  lastTracer = null;
+  lastStateAt = 0;
   netPickups = [];
   mapRuntime.netState = null;
   syncRemotes([]);
@@ -2975,24 +3041,14 @@ function firePrimary() {
     return fired;
   }
 
-  // Netplay: optimistic local VFX — server stays authoritative on damage/ammo
+  // Send the pre-recoil aim immediately. Tracer/endpoints come from the server,
+  // avoiding a second random spread ray that disagrees with authoritative hits.
   triggerFresh = false;
   lastLocalShot = now;
   localShots++;
-  const aim = getAimRay();
-  const origin = aim.origin;
-  let dir = aim.dir.clone();
-  if (W.spread > 0) {
-    dir.x += (Math.random() - 0.5) * W.spread;
-    dir.y += (Math.random() - 0.5) * W.spread * 0.6;
-    dir.z += (Math.random() - 0.5) * W.spread;
-    dir.normalize();
-  }
-  const tWall = castWalls(origin.x, origin.y, origin.z, dir.x, dir.y, dir.z, W.range);
-  spawnTracer(origin, dir, Math.min(tWall, W.range), W.tracer);
-  spawnBolt(origin, dir.clone(), myId || 'local', W.boltColor, W.boltSize);
+  shootPulse = true;
+  sendInput();
   flashMuzzle();
-  playGun(W.sound);
   pitch = THREE.MathUtils.clamp(pitch + W.recoil * (0.8 + Math.random() * 0.4), -1.4, 1.4);
   yaw += W.recoil * 0.35 * (Math.random() < 0.5 ? -1 : 1);
   return true;
@@ -3083,6 +3139,46 @@ loadGameAssets();
 let localShots = 0;
 let localHits = 0;
 window.SKULL_DEBUG = {
+  lookAtWorld(x, y, z) {
+    yaw = Math.atan2(camera.position.x - x, camera.position.z - z);
+    pitch = Math.atan2(y - camera.position.y, Math.hypot(x - camera.position.x, z - camera.position.z));
+    getAimRay();
+  },
+  visibility(id) {
+    const mesh = remoteMeshes.get(id);
+    if (!mesh) return { missing: true };
+    const gl = renderer.getContext();
+    const size = renderer.getDrawingBufferSize(new THREE.Vector2());
+    const before = new Uint8Array(size.x * size.y * 4);
+    const after = new Uint8Array(before.length);
+    const visible = mesh.visible, shadows = renderer.shadowMap.autoUpdate;
+    const tags = [];
+    mesh.traverse(o => { if (o.isSprite) { tags.push([o, o.visible]); o.visible = false; } });
+    let changedPixels = 0;
+    try {
+      // Freeze shadows so only directly visible pixels (not cast shadows) count.
+      renderer.shadowMap.autoUpdate = false;
+      renderer.render(scene, camera);
+      gl.readPixels(0, 0, size.x, size.y, gl.RGBA, gl.UNSIGNED_BYTE, before);
+      mesh.visible = false;
+      renderer.render(scene, camera);
+      gl.readPixels(0, 0, size.x, size.y, gl.RGBA, gl.UNSIGNED_BYTE, after);
+      for (let i = 0; i < before.length; i += 4) {
+        if ([0, 1, 2].some(c => Math.abs(before[i + c] - after[i + c]) > 4)) changedPixels++;
+      }
+    } finally {
+      mesh.visible = visible;
+      for (const [tag, wasVisible] of tags) tag.visible = wasVisible;
+      renderer.shadowMap.autoUpdate = shadows;
+      renderer.render(scene, camera);
+    }
+    const center = new THREE.Box3().setFromObject(mesh).getCenter(new THREE.Vector3());
+    const direction = center.clone().sub(camera.position).normalize();
+    return { changedPixels, visible, attached: mesh.parent === scene, fallback: !!mesh.userData.fallback,
+      centerNdc: center.clone().project(camera).toArray(), distance: center.distanceTo(camera.position),
+      wallDistance: castWalls(camera.position.x, camera.position.y, camera.position.z,
+        direction.x, direction.y, direction.z, center.distanceTo(camera.position)) };
+  },
   async startSolo(agentId, mapId) {
     if (agentId) selectedAgentId = agentId;
     if (mapId) selectedMapId = mapId;
@@ -3104,6 +3200,11 @@ window.SKULL_DEBUG = {
   state() {
     return {
       hitboxVersion: HITBOX_VERSION,
+      myId,
+      stateAgeMs: performance.now() - lastStateAt,
+      modelRevision,
+      loadedModels: Object.keys(models),
+      lastTracer,
       spectator: spectatorMode,
       inMatch: inMatch(),
       socketState: ws?.readyState ?? null,
@@ -3117,6 +3218,9 @@ window.SKULL_DEBUG = {
       fov: camera.fov,
       weapon: currentWeaponId(),
       offline: !!offlineMode,
+      botsFrozen,
+      photoCount: window.SKULL_DEBUG._photo?.length || 0,
+      countdownMs: Math.max(0, matchStartedAt - Date.now()),
       alive: localAlive,
       onlinePlayers: players.size,
       remoteBodies: remoteMeshes.size,
@@ -3126,10 +3230,14 @@ window.SKULL_DEBUG = {
         id,
         agentId: players.get(id)?.agentId,
         fullBody: !!mesh.userData.fullBody,
+        fallback: !!mesh.userData.fallback,
+        attached: mesh.parent === scene,
+        renderAgeMs: performance.now() - (mesh.userData.renderedAt || 0),
         visible: mesh.visible,
         position: { x: mesh.position.x, y: mesh.position.y, z: mesh.position.z },
         yaw: mesh.rotation.y,
         bodyBox: getBodyBox(players.get(id)?.agentId),
+        headBox: getHeadBox(players.get(id)?.agentId),
       })),
     };
   },
@@ -3345,7 +3453,7 @@ window.SKULL_DEBUG = {
   },
   unPhoto() {
     if (this._photo) {
-      for (const m of this._photo) scene.remove(m);
+      for (const m of this._photo) removeRemote(m);
       this._photo = null;
     }
     for (const [, m] of remoteMeshes) m.visible = true;

@@ -1,4 +1,4 @@
-export const HITBOX_VERSION = '20260904-body-box-1';
+export const HITBOX_VERSION = '20260904-head-ads-2';
 export const EYE_HEIGHT = 1.65;
 export const MODEL_HEIGHT = 1.85;
 export const AGENT_SCALES = Object.freeze({
@@ -21,6 +21,30 @@ export function getBodyBox(agentId) {
   const max = agentId === 'drone' ? [0.525, 1.97, 0.175] :
     bodyMax.map((v, i) => (v - (i === 1 ? ground : 0)) * normalization);
   return { min: min.map(v => v * scale), max: max.map(v => v * scale) };
+}
+
+export function getHeadBox(agentId) {
+  const scale = AGENT_SCALES[agentId] ?? 1;
+  // Authored Skull + eyes. Badge uses SB_BadgeSkull, transformed by
+  // standAndSize(1.05): source center X=3, Z=.12, ground Y=.4.
+  const min = agentId === 'drone' ? [-0.2681051493 * 0.875, 0.92 + 0.4 * 0.875, -0.175] :
+    [bodyMin[0] * normalization, (1.1853155360507497 - ground) * normalization, bodyMin[2] * normalization];
+  const max = agentId === 'drone' ? [0.2681051791 * 0.875, 0.92 + 0.9 * 0.875, 0.175] :
+    [bodyMax[0] * normalization, (bodyMax[1] - ground) * normalization, bodyMax[2] * normalization];
+  return { min: min.map(v => v * scale), max: max.map(v => v * scale) };
+}
+
+// Classify the FIRST body contact, not a head behind an intervening torso.
+export function hitRegion(x, y, z, target) {
+  const { min, max } = getHeadBox(target.agentId);
+  const c = Math.cos(target.yaw || 0), s = Math.sin(target.yaw || 0);
+  const dx = x - target.x, dz = z - target.z;
+  const point = [c * dx - s * dz, y - (target.y - EYE_HEIGHT), s * dx + c * dz];
+  return point.every((v, i) => v >= min[i] - 1e-9 && v <= max[i] + 1e-9) ? 'head' : 'body';
+}
+
+export function shotDamage(weapon, region) {
+  return weapon.dmg * (!weapon.oneShot && region === 'head' ? 1.5 : 1);
 }
 
 // Ray into a feet-anchored, yaw-aligned box. Returns entry distance (zero
