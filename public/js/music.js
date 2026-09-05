@@ -138,7 +138,7 @@
         };
       } catch { status.textContent = 'Music unavailable'; return; }
     }
-    if (context.state !== 'running') void sync();
+    if (context.state !== 'running' || muted || !volume) void sync();
   }
   function preference() {
     try { localStorage.setItem(storageKey, JSON.stringify({ volume, muted })); } catch {}

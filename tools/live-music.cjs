@@ -19,6 +19,7 @@ async function main() {
     args: ['--autoplay-policy=user-gesture-required', '--enable-unsafe-swiftshader',
       '--use-gl=angle', '--use-angle=swiftshader'] });
   for (const mobile of [false, true]) {
+    let persistedMuteFailure = false;
     const session = await browser.createBrowserContext();
     const page = await session.newPage();
     await page.setViewport({ width: mobile ? 390 : 1280, height: mobile ? 844 : 800,
@@ -75,7 +76,19 @@ async function main() {
     assert.equal(await page.$eval('#musicMute', el => el.getAttribute('aria-pressed')), 'true');
     assert.equal(await page.evaluate(() => __musicProbe.contexts.length), 0);
     await activate('#musicButton');
-    await page.waitForFunction(() => __musicProbe.contexts[0]?.state === 'suspended');
+    await page.waitForFunction(() => __musicProbe.contexts[0]?.state === 'suspended').catch(async error => {
+      console.error('Persisted-mute diagnostic', await page.evaluate(() => ({
+        states: __musicProbe.contexts.map(context => context.state),
+        sources: __musicProbe.sources,
+        gains: __musicProbe.gains.map(gain => gain.gain.value),
+        gestures: __musicProbe.gestures,
+        preference: localStorage.getItem('skullbond.music.v1'),
+        packets: __musicProbe.packets,
+      })));
+      console.error(error.message);
+      persistedMuteFailure = true;
+      process.exitCode = 1;
+    });
     assert.equal(await page.evaluate(() => __musicProbe.sources), 0, 'Persisted mute schedules no sound');
     await activate('#musicMute');
     await page.waitForFunction(() => __musicProbe.contexts[0].state === 'running' && __musicProbe.sources > 0);
@@ -92,7 +105,7 @@ async function main() {
       delete document.hidden;
       document.dispatchEvent(new Event('visibilitychange'));
     });
-    await page.waitForFunction(() => __musicProbe.contexts[0].state === 'running' && __musicProbe.sources > 0);
+    await page.waitForFunction(previous => __musicProbe.contexts[0].state === 'running' && __musicProbe.sources > previous, {}, count);
     // Check shared control layout without joining or changing multiplayer state.
     for (const spectatorLayout of [false, true]) {
       await page.evaluate(value => document.body.classList.toggle('mobile-spectator', value), mobile && spectatorLayout);
@@ -109,7 +122,7 @@ async function main() {
     assert.equal(await page.evaluate(() => __musicProbe.packets), 0);
     assert.equal(await page.evaluate(() => document.pointerLockElement), null);
     assert.deepEqual(errors, []);
-    console.log(`PASS ${mobile ? 'mobile' : 'desktop'}: native gesture audio, 25% bus, mute/volume persistence, visibility, menu controls; no joins`);
+    console.log(`${persistedMuteFailure ? 'PARTIAL' : 'PASS'} ${mobile ? 'mobile' : 'desktop'}: native gesture audio, 25% bus, mute/volume persistence, visibility, menu controls; no joins${persistedMuteFailure ? '; FAIL persisted-mute context suspension' : ''}`);
     await session.close();
   }
 }
