@@ -1,12 +1,17 @@
 /**
  * Visual QA: renders the six-agent lineup in two arenas and saves PNGs
- * for review. Run: node tools/skins-shot.mjs   (server on :3000)
+ * for review. Run: node tools/skins-shot.mjs https://YOUR-LIVE-HOST
+ * Never starts a match. WebSockets are blocked before the live client loads.
  */
 import puppeteer from 'puppeteer-core';
 import fs from 'node:fs';
 import path from 'node:path';
 
 const OUT = 'C:/Users/PreSafu/AppData/Local/Temp/opencode/skullshots';
+const live = new URL(process.argv[2]);
+if (live.protocol !== 'https:' || /localhost|127\.|\[|\.local$|^10\.|^192\.168\.|^172\.(1[6-9]|2\d|3[01])\./i.test(live.hostname)) {
+  throw new Error('An explicit public live HTTPS URL is required');
+}
 fs.mkdirSync(OUT, { recursive: true });
 
 const BROWSERS = [
@@ -35,14 +40,17 @@ const browser = await puppeteer.launch({
 const page = await browser.newPage();
 await page.setViewport({ width: 1280, height: 720 });
 page.on('pageerror', (e) => console.log('PAGE ERROR:', e.message));
-await page.goto('http://localhost:3000', { waitUntil: 'networkidle2', timeout: 60000 });
+await page.evaluateOnNewDocument(() => {
+  window.WebSocket = class { constructor() { throw new Error('Skin QA forbids multiplayer connections'); } };
+});
+await page.goto(live.href, { waitUntil: 'networkidle2', timeout: 60000 });
 await page.waitForFunction(() => !!window.SKULL_DEBUG, { timeout: 30000 });
-await page.evaluate(() => SKULL_DEBUG.startSolo('skullpepe', 'stadium'));
-await sleep(1500);
+await page.waitForFunction(() => document.getElementById('bootStatus')?.textContent.includes('ASSETS LOCKED'), { timeout: 60000 });
+await page.waitForFunction(() => performance.getEntriesByType('resource').some(r => r.name.includes('/js/agent-surfaces.js?v=20260904b')), { timeout: 30000 });
 
 // Hide HUD chrome for clean skin shots
 await page.evaluate(() => {
-  document.querySelectorAll('#hud, #radar, #crosshair, #hitMarker').forEach((el) => {
+  document.querySelectorAll('#boot, #selectScreen, #overlay, #hud, #radar, #crosshair, #hitMarker').forEach((el) => {
     el.style.display = 'none';
   });
 });
@@ -57,12 +65,15 @@ async function shot(mapId, name) {
 await shot('stadium', 'lineup-stadium.png');
 await shot('facility', 'lineup-facility.png');
 
-// Close-ups: mini(2), drone(4), daisy(1), hazard(5) on the dark map
-for (const [i, name] of [[2, 'mini'], [4, 'drone'], [1, 'daisy'], [5, 'hazard']]) {
+// Both sides of every actual agent, including courier bag and Tech chassis.
+for (const [i, name] of ['og', 'daisy', 'spike', 'courier', 'tech', 'hazard'].entries()) {
   await page.evaluate((idx) => SKULL_DEBUG.focusAgent(idx), i);
   await sleep(350);
   await page.screenshot({ path: path.join(OUT, `close-${name}.png`) });
   console.log('saved close-' + name);
+  await page.evaluate(idx => { SKULL_DEBUG._photo[idx].rotation.y = Math.PI; }, i);
+  await sleep(350);
+  await page.screenshot({ path: path.join(OUT, `back-${name}.png`) });
 }
 
 await browser.close();

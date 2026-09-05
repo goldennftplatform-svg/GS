@@ -147,7 +147,7 @@ const AGENTS = {
 const app = express();
 app.get('/version', (_req, res) => {
   res.setHeader('Cache-Control', 'no-store');
-  res.json({ hitboxVersion: HITBOX_VERSION, revision: process.env.RENDER_GIT_COMMIT || process.env.BUILD_REVISION || null });
+  res.json({ hitboxVersion: HITBOX_VERSION, spectatorVersion: 1, revision: process.env.RENDER_GIT_COMMIT || process.env.BUILD_REVISION || null });
 });
 app.get('/health', (_req, res) => {
   res.json({ ok: true, players: players.size, map: mapId });
@@ -170,6 +170,7 @@ const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 4096 });
 
 /** @type {Map<string, any>} */
 const players = new Map();
+let resetTimer = null;
 let match = {
   started: false,
   endsAt: 0,
@@ -282,6 +283,7 @@ function snapshot(forId) {
   const now = Date.now();
   return {
     type: 'state',
+    mapId,
     you: forId,
     timeLeft: match.started ? Math.max(0, Math.ceil((match.endsAt - Date.now()) / 1000)) : MATCH_SECONDS,
     started: match.started,
@@ -301,7 +303,7 @@ function snapshot(forId) {
 function broadcast(msg, exceptId) {
   const data = JSON.stringify(msg);
   for (const client of wss.clients) {
-    if (client.readyState !== 1) continue;
+    if (client.readyState !== 1 || !client.role) continue;
     if (exceptId && client.playerId === exceptId) continue;
     client.send(data);
   }
@@ -317,7 +319,7 @@ function pushFeed(text) {
 }
 
 function maybeStartMatch() {
-  if (!match.started && players.size >= 1) {
+  if (!match.started && !resetTimer && players.size >= 1) {
     match.started = true;
     match.startedAt = Date.now();
     match.endsAt = Date.now() + MATCH_SECONDS * 1000;
@@ -327,6 +329,7 @@ function maybeStartMatch() {
 }
 
 function resetMatch() {
+  resetTimer = null;
   match.started = false;
   match.endsAt = 0;
   match.killFeed = [];
@@ -636,15 +639,10 @@ function tryShoot(shooter, click) {
 }
 
 wss.on('connection', (ws) => {
-  if (players.size >= MAX_PLAYERS) {
-    send(ws, { type: 'error', message: 'SERVER FULL — 4 AGENTS MAX' });
-    ws.close();
-    return;
-  }
-
   let playerId = null;
 
   ws.on('message', (raw) => {
+    if (ws.readyState !== 1) return;
     let msg;
     try {
       msg = JSON.parse(String(raw));
@@ -652,8 +650,21 @@ wss.on('connection', (ws) => {
       return;
     }
 
+    if (!msg || typeof msg !== 'object') return;
     if (msg.type === 'join') {
-      if (playerId) return;
+      if (ws.role) return;
+      if (msg.role === 'spectator') {
+        ws.role = 'spectator';
+        send(ws, { type: 'welcome', role: 'spectator', id: null, maxPlayers: MAX_PLAYERS, mapId });
+        send(ws, snapshot(null));
+        return;
+      }
+      if (players.size >= MAX_PLAYERS) {
+        send(ws, { type: 'error', message: 'SERVER FULL - SPECTATOR MODE AVAILABLE' });
+        ws.close();
+        return;
+      }
+      ws.role = 'player';
       if (players.size === 0) {
         applyMap(msg.mapId || 'facility');
         match.mapId = mapId;
@@ -665,6 +676,7 @@ wss.on('connection', (ws) => {
       maybeStartMatch();
       send(ws, {
         type: 'welcome',
+        role: 'player',
         id: playerId,
         player: publicPlayer(p),
         maxPlayers: MAX_PLAYERS,
@@ -721,6 +733,8 @@ wss.on('connection', (ws) => {
       broadcast({ type: 'leave', id: playerId, name: p.name });
     }
     if (players.size === 0) {
+      clearTimeout(resetTimer);
+      resetTimer = null;
       match.started = false;
       match.endsAt = 0;
       match.killFeed = [];
@@ -829,16 +843,16 @@ setInterval(() => {
         tokens: p.tokens,
       })),
     });
-    setTimeout(resetMatch, 8000);
+    resetTimer = setTimeout(resetMatch, 8000);
     match.started = false;
     match.endsAt = now + 999999;
   }
 
   let state;
   for (const client of wss.clients) {
-    if (client.readyState !== 1 || !client.playerId) continue;
+    if (client.readyState !== 1 || !client.role) continue;
     state ||= snapshot();
-    send(client, { ...state, you: client.playerId });
+    send(client, { ...state, you: client.playerId || null });
   }
 }, TICK_MS);
 

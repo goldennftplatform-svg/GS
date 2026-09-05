@@ -68,6 +68,7 @@
           <div class="cta-row">
             <button id="modeBtn" class="cta cta-ghost">MODE: DEATHMATCH</button>
             <button id="joinBtn" class="cta">PLAY ONLINE</button>
+            <button id="spectateBtn" class="cta cta-ghost">SPECTATOR MODE</button>
             <button id="soloBtn" class="cta cta-alt">SOLO OPS</button>
             <button id="backBoot" class="cta cta-ghost">BACK</button>
           </div>
@@ -135,6 +136,11 @@
     </div>
   </div>
 
+  <div id="sessionControls" class="hidden">
+    <span id="sessionLabel">LIVE UPLINK</span>
+    <button id="menuBtn" class="cta cta-ghost" type="button">BACK TO MENU</button>
+    <span id="sessionHint">ESC RELEASES MOUSE</span>
+  </div>
   <canvas id="game" tabindex="0"></canvas>
 
   <script type="importmap">
@@ -146,6 +152,6 @@
   }
   </script>
   <script type="module" src="/js/brand.js?v=20260824c"></script>
-  <script type="module" src="/js/client.js?v=20260904a"></script>
+  <script type="module" src="/js/client.js?v=20260904b"></script>
 </body>
 </html>

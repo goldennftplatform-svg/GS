@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { applyAgentSurfaces } from './agent-surfaces.js?v=20260904b';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 // Build-stamped imports — bump these versions so browsers drop stale modules
 import { AGENTS, getAgent, statBar } from './roster.js?v=20260904a';
@@ -83,6 +84,8 @@ const overlay = document.getElementById('overlay');
 const nameInput = document.getElementById('nameInput');
 const joinBtn = document.getElementById('joinBtn');
 const soloBtn = document.getElementById('soloBtn');
+const spectateBtn = document.getElementById('spectateBtn');
+const sessionControls = document.getElementById('sessionControls');
 const bootStatus = document.getElementById('bootStatus');
 const selectStatus = document.getElementById('selectStatus');
 const toSelectBtn = document.getElementById('toSelectBtn');
@@ -146,6 +149,11 @@ let ws = null;
 let localAlive = true;
 let offlineMode = false;
 let offlineMatch = null;
+let spectatorMode = false;
+let sessionId = 0;
+let cancelConnect = null;
+let endMatchTimer = 0;
+const countdownTimers = [];
 
 /** Solid XZ boxes for collision (axis-aligned). */
 const WALLS = [];
@@ -224,44 +232,6 @@ function groundNormalize(root, targetHeight) {
   root.scale.setScalar(s);
   const box2 = new THREE.Box3().setFromObject(root);
   root.position.y -= box2.min.y;
-  return root;
-}
-
-function tintClone(root, color) {
-  const team = new THREE.Color(color);
-  root.traverse((o) => {
-    if (!o.isMesh || !o.material) return;
-    const wasArray = Array.isArray(o.material);
-    const src = wasArray ? o.material : [o.material];
-    const cloned = src.map((m) => {
-      const c = m.clone();
-      // Team outfit slot — the punk jacket carries the agent color
-      if (/punkred|toonred/i.test(c.name || '') && c.color) {
-        c.color.copy(team);
-        c.emissive = team.clone().multiplyScalar(0.35);
-        return c;
-      }
-      // Gold trim stays gold
-      if (/gold/i.test(c.name || '')) return c;
-      const emLum = c.emissive ? c.emissive.r + c.emissive.g + c.emissive.b : 0;
-      if (emLum > 0.05) {
-        // Toon-shaded surfaces: the glow IS the visible color — team it hard
-        c.emissive.lerp(team, 0.78);
-        if (c.color) c.color.lerp(team, 0.3);
-        return c;
-      }
-      const lum = c.color ? c.color.r * 0.3 + c.color.g * 0.6 + c.color.b * 0.1 : 0;
-      if (lum > 0.55) {
-        // Whites/bones become the team uniform — GE outfit rule
-        c.color.lerp(team, 0.82);
-        return c;
-      }
-      // Dark/detail surfaces: keep identity, whisper of team
-      if (c.color) c.color.lerp(team, 0.18);
-      return c;
-    });
-    o.material = wasArray ? cloned : cloned[0];
-  });
   return root;
 }
 
@@ -694,7 +664,7 @@ function useMapControl() {
 
 function drawRadar() {
   const c = els.radar;
-  if (!c || !myId || hud.classList.contains('hidden')) return;
+  if (!c || !inMatch()) return;
   const g = c.getContext('2d');
   const w = c.width;
   const h = c.height;
@@ -834,7 +804,7 @@ function makeAgentMesh(agentOrColor) {
     if (agent.id === 'drone' && models.badge) {
       // RAY DRONE: upright badge chassis hovering over its ring
       const g = new THREE.Group();
-      const disk = popMats(standAndSize(models.badge, 1.05), 0.3);
+      const disk = applyAgentSurfaces(standAndSize(models.badge, 1.05), agent.id);
       disk.traverse((o) => {
         if (o.isMesh) {
           o.castShadow = true;
@@ -853,19 +823,7 @@ function makeAgentMesh(agentOrColor) {
     clone.add(models.agent.clone(true));
     clone.userData.fullBody = true;
     clone.scale.setScalar(agent.scale || 1);
-    tintClone(clone, color);
-
     const accentColor = new THREE.Color(agent.accent || color);
-    clone.traverse((o) => {
-      if (!o.isMesh || !o.material) return;
-      const mats = Array.isArray(o.material) ? o.material : [o.material];
-      for (const m of mats) {
-        if (m.emissive) {
-          m.emissive.lerp(accentColor, 0.15);
-          m.emissiveIntensity = Math.max(m.emissiveIntensity || 0, 0.12);
-        }
-      }
-    });
 
     const accentBand = new THREE.Mesh(
       new THREE.TorusGeometry(0.38, 0.035, 6, 20),
@@ -882,33 +840,34 @@ function makeAgentMesh(agentOrColor) {
 
     if (agent.id === 'daisy' && models.daisy) {
       // DAISY SKULL: real daisy crown, popped so it reads on any body color
-      const crown = popMats(models.daisy.clone(true), 0.35);
+      const crown = models.daisy.clone(true);
       crown.scale.multiplyScalar(0.5);
       crown.position.set(0, 1.76, 0);
       crown.rotation.z = 0.12;
       clone.add(crown);
     }
     if (agent.id === 'mini' && models.mohawk) {
-      const mohawk = popMats(standAndSize(models.mohawk, 0.72), 0.35);
+      const mohawk = standAndSize(models.mohawk, 0.72);
       mohawk.position.y = 1.25;
       mohawk.rotation.y = Math.PI;
       clone.add(mohawk);
     }
     if (agent.id === 'boss' && models.bag) {
       // BOSS MARKER: daily delivery bag strapped to the back
-      const bag = popMats(standAndSize(models.bag, 0.62), 0.22);
+      const bag = standAndSize(models.bag, 0.62);
       bag.position.set(-0.12, 1.02, -0.46);
       bag.rotation.y = Math.PI;
       clone.add(bag);
     }
     if (agent.id === 'hazard' && models.hazard) {
       // AGENT HAZARD: warning-sign plate, wider than the body so it peeks out
-      const plate = popMats(standAndSize(models.hazard, 1.15), 0.28);
+      const plate = standAndSize(models.hazard, 1.15);
       plate.position.set(0, 1.18, -0.5);
       plate.rotation.y = Math.PI;
       clone.add(plate);
     }
     addIdentityKit(clone, agent, 2.3);
+    applyAgentSurfaces(clone, agent.id);
     return clone;
   }
 
@@ -1971,6 +1930,15 @@ function updateBolts(dt) {
 }
 
 function updateHud(state) {
+  if (spectatorMode) {
+    els.time.textContent = state.started ? String(state.timeLeft) : 'WAIT';
+    els.count.textContent = `${state.players.length}/${state.maxPlayers}`;
+    netPickups = state.pickups || [];
+    els.scoreboard.textContent = [...state.players].sort((a, b) => b.kills - a.kills)
+      .map(p => `${p.name}  ${p.kills}-${p.deaths}`).join('\n');
+    els.killFeed.textContent = state.killFeed.slice().reverse().map(k => k.text).join('\n');
+    return;
+  }
   const me = state.players.find((p) => p.id === myId);
   if (!me) return;
 
@@ -2047,17 +2015,26 @@ function updateHud(state) {
 }
 
 function beginMission(title) {
+  sessionControls.classList.remove('hidden');
+  hud.classList.toggle('spectating', spectatorMode);
+  gunGroup.visible = !spectatorMode;
+  document.getElementById('sessionLabel').textContent = spectatorMode ? 'SPECTATOR // FREE FLIGHT' : 'AGENT // ACTIVE';
+  document.getElementById('sessionHint').textContent = spectatorMode
+    ? 'WASD + MOUSE / SPACE UP / CTRL DOWN / SHIFT FAST / ESC UNLOCK'
+    : 'ESC RELEASES MOUSE';
   boot.classList.add('hidden');
   selectScreen?.classList.add('hidden');
   hud.classList.remove('hidden');
   overlay.classList.add('hidden');
   showCenter(title + ' · CLICK TO LOCK MOUSE', 2400);
   canvas.focus();
-  // May fail outside direct gesture — LMB handler will lock + fire anyway
+  // May fail outside a direct gesture; the first canvas click only locks the mouse.
   tryPointerLock();
 }
 
 function endMatch(standings) {
+  if (spectatorMode || !inMatch()) return;
+  clearTimeout(endMatchTimer);
   overlay.classList.remove('hidden');
   els.overlayTitle.textContent = 'MISSION COMPLETE';
   const mine = standings.find((s) => s.id === myId);
@@ -2074,7 +2051,7 @@ function endMatch(standings) {
         : 'Next match arms in a few seconds…';
   }
   document.exitPointerLock();
-  setTimeout(() => {
+  endMatchTimer = setTimeout(() => {
     overlay.classList.add('hidden');
     if (offlineMode) resetOfflineMatch();
   }, 7500);
@@ -2170,6 +2147,7 @@ function resetOfflineMatch() {
 
 function startOffline(name) {
   offlineMode = true;
+  mountViewmodel('raygun');
   myId = 'local';
   const mine = getAgent(selectedAgentId);
   const me = makeEntity('local', (name || mine.name).slice(0, 16).toUpperCase(), mine.id, 0, false);
@@ -2198,12 +2176,12 @@ function startOffline(name) {
   beginMission(`${mine.name} - ${getMap(selectedMapId).name}`);
   publishOfflineHud();
   for (let c = 0; c < 4; c++) {
-    setTimeout(() => {
+    countdownTimers.push(setTimeout(() => {
       const text = c < 3 ? `${3 - c}` : 'GO';
       showCenter(text, 800, c === 3);
       ensureAudio();
       gunVoice('square', c < 3 ? 440 : 880, c < 3 ? 440 : 880, c < 3 ? 0.15 : 0.22, c < 3 ? 0.14 : 0.19);
-    }, c * 800 + 200);
+    }, c * 800 + 200));
   }
 }
 
@@ -2604,37 +2582,32 @@ function resolveWsUrl() {
   return `${proto}://${location.host}/ws`;
 }
 
-function connect(name) {
-  if (new URLSearchParams(location.search).get('solo') === '1') {
-    statusMsg(selectStatus || bootStatus, 'STARTING SOLO OPS…');
-    setTimeout(() => {
-      loadSelectedMap(selectedMapId);
-      startOffline(name);
-    }, 300);
-    return;
-  }
-
+function connect(name, role = 'player') {
+  const generation = sessionId;
   const url = resolveWsUrl();
   const wakingRender = /\.onrender\.com/i.test(url);
   let settled = false;
   let retryTimer = 0;
   let attempts = 0;
   const failJoin = (why) => {
-    if (settled || myId || offlineMode) return;
+    if (generation !== sessionId || settled || myId || offlineMode) return;
     settled = true;
     clearTimeout(retryTimer);
-    try {
-      ws?.close();
-    } catch {}
+    backToMenu();
     localStorage.removeItem('skullbond-ws');
     statusMsg(selectStatus || bootStatus, `${why} — RETRY OR USE SOLO OPS`);
     joinBtn.disabled = false;
     soloBtn.disabled = false;
   };
   const timer = setTimeout(() => failJoin('UPLINK TIMEOUT'), wakingRender ? 75000 : 6000);
+  cancelConnect = () => {
+    settled = true;
+    clearTimeout(timer);
+    clearTimeout(retryTimer);
+  };
 
   function retryOrFail(socket) {
-    if (settled || socket !== ws || retryTimer) return;
+    if (generation !== sessionId || settled || socket !== ws || retryTimer) return;
     if (!wakingRender) {
       clearTimeout(timer);
       failJoin('LINK FAILED');
@@ -2648,6 +2621,8 @@ function connect(name) {
   }
 
   function openSocket() {
+    if (generation !== sessionId || settled) return;
+    ws?.close();
     attempts += 1;
     let socket;
     try {
@@ -2658,17 +2633,22 @@ function connect(name) {
       return;
     }
     socket.onopen = () => {
-      if (socket !== ws || settled) return;
+      if (generation !== sessionId || socket !== ws || settled) return;
       statusMsg(selectStatus || bootStatus, 'LINKED — ARMING…');
-      socket.send(JSON.stringify({ type: 'join', name, agentId: selectedAgentId, mapId: selectedMapId }));
+      socket.send(JSON.stringify({ type: 'join', role, name, agentId: selectedAgentId, mapId: selectedMapId }));
     };
     socket.onerror = () => retryOrFail(socket);
     socket.onclose = () => {
-      if (socket !== ws) return;
-      if (!myId && !offlineMode) retryOrFail(socket);
-      else if (myId && !offlineMode) showCenter('CONNECTION LOST', 4000);
+      if (generation !== sessionId || socket !== ws) return;
+      if (!settled) retryOrFail(socket);
+      else {
+        backToMenu();
+        statusMsg(selectStatus, 'CONNECTION LOST - REJOIN WHEN READY');
+      }
     };
-    socket.onmessage = handleMessage;
+    socket.onmessage = ev => {
+      if (generation === sessionId && socket === ws) handleMessage(ev);
+    };
   }
 
   function handleMessage(ev) {
@@ -2679,19 +2659,26 @@ function connect(name) {
       return;
     }
     if (msg.type === 'error') {
-      settled = true;
-      clearTimeout(timer);
-      clearTimeout(retryTimer);
+      backToMenu();
       statusMsg(selectStatus || bootStatus, msg.message);
       joinBtn.disabled = false;
       soloBtn.disabled = false;
       return;
     }
     if (msg.type === 'welcome') {
+      if (settled) return;
+      if (role === 'spectator' && msg.role !== 'spectator') {
+        failJoin('SERVER DOES NOT SUPPORT SPECTATORS YET');
+        return;
+      }
       settled = true;
       clearTimeout(timer);
+      clearTimeout(retryTimer);
       offlineMode = false;
+      spectatorMode = msg.role === 'spectator';
       myId = msg.id;
+      localAlive = !spectatorMode;
+      lastHp = msg.player?.hp || 100;
       matchStartedAt = Date.now();
       netPickups = [];
       netWeapon = 'raygun';
@@ -2700,11 +2687,17 @@ function connect(name) {
       else loadSelectedMap(selectedMapId);
       mountViewmodel('raygun');
       const mine = getAgent(selectedAgentId);
+      const spawn = msg.player || SPAWNS[0];
+      camera.position.set(spawn.x, spectatorMode ? 12 : spawn.y, spawn.z);
+      yaw = spawn.yaw;
+      pitch = spectatorMode ? -0.2 : 0;
       if (agentTag) agentTag.textContent = `#${String(mine.slot).padStart(2, '0')} ${mine.name}`;
-      beginMission(`${mine.name} — ${getMap(selectedMapId).name}`);
+      beginMission(`${spectatorMode ? 'SPECTATOR MODE' : mine.name} - ${getMap(selectedMapId).name}`);
       return;
     }
     if (msg.type === 'state') {
+      if (!settled) return;
+      if (msg.mapId && msg.mapId !== selectedMapId) loadSelectedMap(msg.mapId);
       mapRuntime.netState = msg.mapRuntime || null;
       syncRemotes(msg.players);
       const me = msg.players.find((p) => p.id === myId);
@@ -2764,7 +2757,7 @@ function connect(name) {
       return;
     }
     if (msg.type === 'kill') {
-      if (msg.killer === myId) {
+      if (!spectatorMode && msg.killer === myId) {
         playSting('kill');
         const v = players.get(msg.victim);
         showSkullPop(v ? v.name : 'TARGET');
@@ -2782,7 +2775,7 @@ function connect(name) {
 }
 
 function sendInput() {
-  if (offlineMode || !ws || ws.readyState !== 1 || !myId) return;
+  if (spectatorMode || offlineMode || !ws || ws.readyState !== 1 || !myId) return;
   const shooting = (keys.shootHeld || shootPulse) && localAlive;
   ws.send(
     JSON.stringify({
@@ -2808,6 +2801,7 @@ function statusMsg(el, text) {
 }
 
 function armJoin(mode) {
+  backToMenu();
   const mine = getAgent(selectedAgentId);
   const typed = (nameInput.value || '').trim();
   // Only a typed name persists — agent defaults never pollute storage
@@ -2816,15 +2810,80 @@ function armJoin(mode) {
   localStorage.setItem('skullbond-agent', selectedAgentId);
   joinBtn.disabled = true;
   soloBtn.disabled = true;
+  spectateBtn.disabled = true;
+  sessionControls.classList.remove('hidden');
+  document.getElementById('sessionLabel').textContent = 'CONNECTING';
   localStorage.setItem('skullbond-map', selectedMapId);
-  if (mode === 'solo') {
+  if (mode === 'solo' || (mode !== 'spectator' && new URLSearchParams(location.search).get('solo') === '1')) {
     statusMsg(selectStatus, 'LOADING ARENA…');
     loadSelectedMap(selectedMapId);
     startOffline(name);
     return;
   }
   statusMsg(selectStatus, 'ESTABLISHING UPLINK…');
-  connect(name);
+  connect(name, mode === 'spectator' ? 'spectator' : 'player');
+}
+
+function clearInput() {
+  for (const key of Object.keys(keys)) keys[key] = false;
+  shootPulse = false;
+  triggerFresh = false;
+}
+
+function backToMenu() {
+  // Invalidate callbacks before closing: an old socket must never own a new session.
+  sessionId++;
+  cancelConnect?.();
+  cancelConnect = null;
+  const socket = ws;
+  ws = null;
+  socket?.close();
+  clearTimeout(endMatchTimer);
+  countdownTimers.splice(0).forEach(clearTimeout);
+  clearTimeout(showCenter._t);
+  clearTimeout(showDmgDir._t);
+  clearInput();
+  myId = null;
+  spectatorMode = false;
+  offlineMode = false;
+  offlineMatch = null;
+  localAlive = false;
+  netPickups = [];
+  mapRuntime.netState = null;
+  syncRemotes([]);
+  players.clear();
+  updateHud.feedHtml = updateHud.boardHtml = null;
+  els.killFeed.textContent = els.scoreboard.textContent = '';
+  for (const list of [bolts, tracers, goos, liveGrenades, dmgNums]) {
+    for (const item of list) {
+      const object = item.mesh || item.sprite;
+      if (object) { scene.remove(object); disposeObject(object); }
+    }
+    list.length = 0;
+  }
+  gunGroup.visible = false;
+  muzzleFlash.intensity = 0;
+  adsBlend = 0;
+  lastHp = 100;
+  netWeapon = 'raygun';
+  netAmmo = -1;
+  lastLocalShot = 0;
+  matchStartedAt = 0;
+  for (const el of [els.centerMsg, els.dmgDir, els.damage, els.hitMarker, els.skullPop]) {
+    el?.classList.remove('show', 'on', 'crit');
+  }
+  hud.classList.add('hidden');
+  hud.classList.remove('spectating');
+  overlay.classList.add('hidden');
+  sessionControls.classList.add('hidden');
+  boot.classList.add('hidden');
+  selectScreen.classList.remove('hidden');
+  joinBtn.disabled = soloBtn.disabled = spectateBtn.disabled = false;
+  statusMsg(selectStatus, '');
+  document.exitPointerLock?.();
+  pointerLocked = false;
+  buildMapSelect();
+  buildAgentSelect();
 }
 
 function renderDossier(agent) {
@@ -2906,11 +2965,14 @@ toSelectBtn?.addEventListener('click', () => {
 });
 
 backBoot?.addEventListener('click', () => {
+  backToMenu();
   selectScreen.classList.add('hidden');
   boot.classList.remove('hidden');
 });
 
 joinBtn.addEventListener('click', () => armJoin('net'));
+spectateBtn.addEventListener('click', () => armJoin('spectator'));
+document.getElementById('menuBtn').addEventListener('click', backToMenu);
   soloBtn.addEventListener('click', () => armJoin('solo'));
   const modeBtn = document.getElementById('modeBtn');
   if (modeBtn) {
@@ -2936,6 +2998,12 @@ nameInput.addEventListener('keydown', (e) => {
 
 
 addEventListener('keydown', (e) => {
+  if (e.code === 'Escape') {
+    clearInput();
+    document.exitPointerLock?.();
+    return;
+  }
+  if (!inMatch() || !pointerLocked || !overlay.classList.contains('hidden')) return;
   if (e.repeat) return;
   if (e.code === 'KeyW') keys.f = true;
   if (e.code === 'KeyS') keys.b = true;
@@ -2945,6 +3013,10 @@ addEventListener('keydown', (e) => {
   if (e.code === 'Space') {
     e.preventDefault();
     keys.jump = true;
+  }
+  if (spectatorMode) {
+    if (e.code === 'ControlLeft' || e.code === 'ControlRight') { e.preventDefault(); keys.down = true; }
+    return;
   }
   if (e.code === 'KeyF' || e.code === 'ControlLeft' || e.code === 'ControlRight') {
     keys.shootHeld = true;
@@ -2970,6 +3042,8 @@ addEventListener('keydown', (e) => {
 });
 
 addEventListener('keyup', (e) => {
+  if (e.code === 'Space') keys.jump = false;
+  if (e.code === 'ControlLeft' || e.code === 'ControlRight') keys.down = false;
   if (e.code === 'KeyW') keys.f = false;
   if (e.code === 'KeyS') keys.b = false;
   if (e.code === 'KeyA') keys.l = false;
@@ -2981,7 +3055,7 @@ addEventListener('keyup', (e) => {
 });
 
 function inMatch() {
-  return !!myId && !hud.classList.contains('hidden');
+  return (!!myId || spectatorMode) && !hud.classList.contains('hidden');
 }
 
 function tryPointerLock() {
@@ -2991,7 +3065,7 @@ function tryPointerLock() {
 }
 
 function firePrimary() {
-  if (!inMatch() || !localAlive) return false;
+  if (spectatorMode || !inMatch() || !localAlive || !overlay.classList.contains('hidden')) return false;
   const wid = currentWeaponId();
   const W = getWeapon(wid);
   const now = Date.now();
@@ -3032,7 +3106,11 @@ function firePrimary() {
 }
 
 function onPrimaryDown(e) {
-  if (!inMatch()) return;
+  if (!inMatch() || e.target !== canvas || !overlay.classList.contains('hidden')) return;
+  if (spectatorMode || !pointerLocked) {
+    if (e.button === 0) { canvas.focus(); tryPointerLock(); }
+    return;
+  }
   if (e.button === 2) {
     keys.ads = true;
     if (e.cancelable) e.preventDefault();
@@ -3068,8 +3146,7 @@ document.addEventListener('contextmenu', (e) => {
 document.addEventListener('pointerlockchange', () => {
   pointerLocked = document.pointerLockElement === canvas;
   if (!pointerLocked) {
-    keys.shootHeld = false;
-    triggerFresh = false;
+    clearInput();
   }
 });
 
@@ -3083,6 +3160,7 @@ addEventListener('mousemove', (e) => {
   yaw -= e.movementX * sens;
   pitch -= e.movementY * sens;
   pitch = Math.max(-1.4, Math.min(1.4, pitch));
+  if (spectatorMode) return;
   // Two-way button sync from the OS state — self-heals swallowed pointerups
   // (one-way asserts here were latching the trigger ON forever)
   const held = !!(e.buttons & 1);
@@ -3094,9 +3172,7 @@ addEventListener('mousemove', (e) => {
 
 // Stuck-fire killswitches: losing focus or pointer lock always drops the trigger
 addEventListener('blur', () => {
-  keys.shootHeld = false;
-  keys.ads = false;
-  triggerFresh = false;
+  clearInput();
 });
 
 addEventListener('resize', () => {
@@ -3135,6 +3211,11 @@ window.SKULL_DEBUG = {
   state() {
     return {
       hitboxVersion: HITBOX_VERSION,
+      spectator: spectatorMode,
+      inMatch: inMatch(),
+      socketState: ws?.readyState ?? null,
+      mapId: selectedMapId,
+      camera: { x: camera.position.x, y: camera.position.y, z: camera.position.z, yaw, pitch },
       shots: localShots,
       hits: localHits,
       shootHeld: keys.shootHeld,
@@ -3336,6 +3417,7 @@ window.SKULL_DEBUG = {
   },
   // Line up every agent in front of the camera for visual inspection
   async photoMode(mapId) {
+    if (ws && ws.readyState < 2) throw new Error('Photo mode requires a disconnected client');
     if (mapId && mapId !== selectedMapId) {
       selectedMapId = mapId;
       loadSelectedMap(mapId);
@@ -3438,6 +3520,16 @@ function tick() {
   }
 
   if (offlineMode) offlineTick(dt);
+  if (spectatorMode && pointerLocked) {
+    const forward = Number(keys.f) - Number(keys.b);
+    const right = Number(keys.r) - Number(keys.l);
+    const up = Number(keys.jump) - Number(!!keys.down);
+    const direction = dirFromYawPitch(yaw, pitch).multiplyScalar(forward);
+    direction.x += Math.cos(yaw) * right;
+    direction.z -= Math.sin(yaw) * right;
+    direction.y += up;
+    if (direction.lengthSq()) camera.position.addScaledVector(direction.normalize(), dt * (keys.sprint ? 36 : 12));
+  }
   updateMapGameplay(dt, Date.now());
   updateBolts(dt);
   updateTracers();
