@@ -1,6 +1,7 @@
 // Static only: report authored material regions and UV ranges without a renderer.
 import fs from 'node:fs';
-for (const name of ['skullpepe', 'daily_bag', 'crew_badge', 'mohawk_head', 'hazard_sign', 'daisy']) {
+const names = process.argv.slice(2).filter(arg => !arg.startsWith('--'));
+for (const name of (names.length ? names : ['skullpepe', 'daily_bag', 'crew_badge', 'mohawk_head', 'hazard_sign', 'daisy'])) {
   const b = fs.readFileSync(new URL(`../public/assets/models/${name}.glb`, import.meta.url));
   const length = b.readUInt32LE(12);
   const g = JSON.parse(b.toString('utf8', 20, 20 + length));

@@ -46,6 +46,10 @@ for (const id of ['skullpepe', 'daisy', 'mini', 'boss', 'drone', 'hazard']) {
   maps.add(get('DeliveryBag').map.name);
 }
 assert.equal(maps.size, 6, 'Six distinct accessory surface treatments');
+const unknown = { name: 'FutureSlot', clone() { return { ...this }; } };
+const unknownMesh = { isMesh: true, material: [unknown] };
+applyAgentSurfaces({ traverse: fn => fn(unknownMesh) }, 'mini');
+assert.notEqual(unknownMesh.material[0], unknown, 'Unknown material slots also isolate hit flashes');
 for (const [file, id, texturedNode, protectedNode] of [
   ['crew_badge', 'drone', 'SB_BadgeDisk', 'SB_BadgeSkull'],
   ['daily_bag', 'boss', 'SB_BagBody', 'SB_BagHandle'],

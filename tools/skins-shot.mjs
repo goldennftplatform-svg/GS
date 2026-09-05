@@ -46,7 +46,7 @@ await page.evaluateOnNewDocument(() => {
 await page.goto(live.href, { waitUntil: 'networkidle2', timeout: 60000 });
 await page.waitForFunction(() => !!window.SKULL_DEBUG, { timeout: 30000 });
 await page.waitForFunction(() => document.getElementById('bootStatus')?.textContent.includes('ASSETS LOCKED'), { timeout: 60000 });
-await page.waitForFunction(() => performance.getEntriesByType('resource').some(r => r.name.includes('/js/agent-surfaces.js?v=20260904c')), { timeout: 30000 });
+await page.waitForFunction(() => performance.getEntriesByType('resource').some(r => r.name.includes('/js/agent-surfaces.js?v=20260904d')), { timeout: 30000 });
 
 // Hide HUD chrome for clean skin shots
 await page.evaluate(() => {
@@ -65,29 +65,21 @@ async function shot(mapId, name) {
 await shot('stadium', 'lineup-stadium.png');
 await shot('facility', 'lineup-facility.png');
 
-// Keep the raw arena lineups above. Isolated shots remove only diagnostic adornments,
-// not authored meshes/materials, and use stadium to avoid the facility reactor overlay.
-await page.evaluate(async () => {
-  await SKULL_DEBUG.photoMode('stadium');
-  for (const root of SKULL_DEBUG._photo) {
-    for (const child of root.children) {
-      if (child.isSprite || (child.isMesh && !child.material?.name)) child.visible = false;
-    }
+// Both sides in both lighting rigs, without hiding character adornments for QA.
+for (const map of ['stadium', 'facility']) {
+  await page.evaluate(m => SKULL_DEBUG.photoMode(m), map);
+  for (const [i, name] of ['og', 'daisy', 'spike', 'courier', 'tech', 'hazard'].entries()) {
+    await page.evaluate((idx) => {
+      SKULL_DEBUG._photo.forEach((m, j) => { m.visible = j === idx; });
+      SKULL_DEBUG.focusAgent(idx);
+    }, i);
+    await sleep(350);
+    await page.screenshot({ path: path.join(OUT, `${map}-close-${name}.png`) });
+    console.log('saved', map, name);
+    await page.evaluate(idx => { SKULL_DEBUG._photo[idx].rotation.y = Math.PI; }, i);
+    await sleep(350);
+    await page.screenshot({ path: path.join(OUT, `${map}-back-${name}.png`) });
   }
-});
-
-// Both sides of every actual agent, including courier bag and Tech chassis.
-for (const [i, name] of ['og', 'daisy', 'spike', 'courier', 'tech', 'hazard'].entries()) {
-  await page.evaluate((idx) => {
-    SKULL_DEBUG._photo.forEach((m, j) => { m.visible = j === idx; });
-    SKULL_DEBUG.focusAgent(idx);
-  }, i);
-  await sleep(350);
-  await page.screenshot({ path: path.join(OUT, `close-${name}.png`) });
-  console.log('saved close-' + name);
-  await page.evaluate(idx => { SKULL_DEBUG._photo[idx].rotation.y = Math.PI; }, i);
-  await sleep(350);
-  await page.screenshot({ path: path.join(OUT, `back-${name}.png`) });
 }
 
 await browser.close();

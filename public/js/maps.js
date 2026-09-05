@@ -390,9 +390,10 @@ function api(ctx) {
   function lights(color, fogColor, fogNear, fogFar, points = []) {
     ctx.scene.background = new T.Color(fogColor);
     ctx.scene.fog = new T.Fog(fogColor, fogNear, fogFar);
-    const amb = new T.AmbientLight(color, 0.45);
+    // Neutral fill keeps cream/green/ink legible in shadow; local lights retain map color.
+    const amb = new T.AmbientLight(0xffffff, 0.7);
     world.add(amb);
-    const sun = new T.DirectionalLight(0xfff2b3, 1.05);
+    const sun = new T.DirectionalLight(0xffffff, 1.05);
     sun.position.set(40, 55, 20);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);

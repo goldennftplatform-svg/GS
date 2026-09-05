@@ -1,10 +1,10 @@
 import * as THREE from 'three';
-import { applyAgentSurfaces } from './agent-surfaces.js?v=20260904c';
+import { applyAgentSurfaces } from './agent-surfaces.js?v=20260904d';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 // Build-stamped imports — bump these versions so browsers drop stale modules
 import { AGENTS, getAgent, statBar } from './roster.js?v=20260904a';
 import { EYE_HEIGHT, MODEL_HEIGHT, HITBOX_VERSION, getBodyBox, intersectBody } from './body-geometry.mjs?v=20260904a';
-import { MAPS, getMap, buildMapById, bindThree, PAD_SPOTS, GOLD_SPOTS } from './maps.js?v=20260829a';
+import { MAPS, getMap, buildMapById, bindThree, PAD_SPOTS, GOLD_SPOTS } from './maps.js?v=20260904d';
 import { WEAPONS, GOLD_SHOTS, GUN_RANK, getWeapon } from './weapons.js?v=20260825c';
 import { BRAND } from './brand.js?v=20260825c';
 
@@ -274,93 +274,6 @@ function popMats(root, strength = 0.3) {
     }
   });
   return root;
-}
-
-/** Overhead codename tag — big, high-contrast, draws through walls. */
-function makeNameSprite(text, cssColor) {
-  const c = document.createElement('canvas');
-  c.width = 512;
-  c.height = 128;
-  const g = c.getContext('2d');
-  g.font = '36px "Press Start 2P", monospace';
-  g.textAlign = 'center';
-  g.textBaseline = 'middle';
-  g.lineWidth = 10;
-  g.strokeStyle = '#10140f';
-  g.strokeText(text, 256, 64);
-  g.fillStyle = cssColor;
-  g.fillText(text, 256, 64);
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  const spr = new THREE.Sprite(
-    new THREE.SpriteMaterial({
-      map: tex,
-      transparent: true,
-      opacity: 0.95,
-      depthTest: false,
-    })
-  );
-  spr.scale.set(3.0, 0.75, 1);
-  spr.renderOrder = 999;
-  return spr;
-}
-
-/**
- * Identity kit: glowing floor ring + team-color beacon + overhead codename.
- * Every agent reads instantly against any arena.
- */
-function addIdentityKit(group, agent, tagY) {
-  const cssColor = agent.color || '#' + new THREE.Color(agent.tint ?? 0x6baf6e).getHexString();
-  const hex = agent.tint ?? 0x6baf6e;
-  const accentHex = agent.accent ? new THREE.Color(agent.accent).getHex() : hex;
-
-  const ring = new THREE.Mesh(
-    new THREE.TorusGeometry(0.55, 0.08, 8, 26),
-    new THREE.MeshStandardMaterial({
-      color: hex,
-      emissive: hex,
-      emissiveIntensity: 1.6,
-      roughness: 0.4,
-    })
-  );
-  ring.rotation.x = -Math.PI / 2;
-  ring.position.y = 0.09;
-  group.add(ring);
-
-  const accentRing = new THREE.Mesh(
-    new THREE.TorusGeometry(0.62, 0.04, 8, 26),
-    new THREE.MeshStandardMaterial({
-      color: accentHex,
-      emissive: accentHex,
-      emissiveIntensity: 1.2,
-      roughness: 0.35,
-      transparent: true,
-      opacity: 0.7,
-    })
-  );
-  accentRing.rotation.x = -Math.PI / 2;
-  accentRing.position.y = 0.09;
-  group.add(accentRing);
-
-  const beam = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.07, 0.16, 2.4, 8, 1, true),
-    new THREE.MeshBasicMaterial({
-      color: hex,
-      transparent: true,
-      opacity: 0.32,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    })
-  );
-  beam.position.y = 1.25;
-  group.add(beam);
-
-  if (agent.codename) {
-    const tag = makeNameSprite(agent.codename, cssColor);
-    tag.position.y = tagY;
-    group.add(tag);
-  }
-  return group;
 }
 
 function fallbackGun() {
@@ -802,7 +715,7 @@ function makeAgentMesh(agentOrColor) {
   if (models.agent) {
     // Real-sample skins — unique bodies built from the NSES asset kit
     if (agent.id === 'drone' && models.badge) {
-      // RAY DRONE: upright badge chassis hovering over its ring
+      // Keep the approved hovering badge chassis.
       const g = new THREE.Group();
       const disk = applyAgentSurfaces(standAndSize(models.badge, 1.05), agent.id);
       disk.traverse((o) => {
@@ -813,7 +726,6 @@ function makeAgentMesh(agentOrColor) {
       });
       disk.position.y = 0.92;
       g.add(disk);
-      addIdentityKit(g, agent, 1.85 * (agent.scale || 1));
       g.scale.setScalar(agent.scale || 1);
       return g;
     }
@@ -823,50 +735,36 @@ function makeAgentMesh(agentOrColor) {
     clone.add(models.agent.clone(true));
     clone.userData.fullBody = true;
     clone.scale.setScalar(agent.scale || 1);
-    const accentColor = new THREE.Color(agent.accent || color);
-
-    const accentBand = new THREE.Mesh(
-      new THREE.TorusGeometry(0.38, 0.035, 6, 20),
-      new THREE.MeshStandardMaterial({
-        color: accentColor,
-        emissive: accentColor,
-        emissiveIntensity: 1.8,
-        roughness: 0.3,
-      })
-    );
-    accentBand.rotation.x = -Math.PI / 2;
-    accentBand.position.y = 1.25;
-    clone.add(accentBand);
-
-    if (agent.id === 'daisy' && models.daisy) {
-      // DAISY SKULL: real daisy crown, popped so it reads on any body color
-      const crown = models.daisy.clone(true);
-      crown.scale.multiplyScalar(0.5);
-      crown.position.set(0, 1.76, 0);
-      crown.rotation.z = 0.12;
-      clone.add(crown);
-    }
     if (agent.id === 'mini' && models.mohawk) {
-      const mohawk = standAndSize(models.mohawk, 0.72);
-      mohawk.position.y = 1.25;
-      mohawk.rotation.y = Math.PI;
-      clone.add(mohawk);
+      // The prop contains an entire second head. Keep only its authored spikes,
+      // and fit them to the normalized scalp before applying gameplay scale.
+      const spikes = new THREE.Group();
+      const source = models.mohawk.clone(true);
+      const remove = [];
+      source.traverse(o => { if (o.isMesh && !/^SB_Spike/.test(o.name)) remove.push(o); });
+      remove.forEach(o => o.removeFromParent());
+      spikes.add(source);
+      // The exported spike row runs along X, while the scalp faces along Z.
+      spikes.rotation.y = Math.PI / 2;
+      models.agent.updateMatrixWorld(true);
+      const scalp = models.agent.getObjectByName('PepeScalp');
+      if (scalp) {
+        const headBox = new THREE.Box3().setFromObject(scalp);
+        const spikeBox = new THREE.Box3().setFromObject(spikes);
+        const headSize = headBox.getSize(new THREE.Vector3());
+        const spikeSize = spikeBox.getSize(new THREE.Vector3());
+        spikes.scale.setScalar(Math.min(
+          headSize.z * 0.8 / Math.max(spikeSize.z, 0.001),
+          headSize.y * 0.5 / Math.max(spikeSize.y, 0.001)
+        ));
+        spikeBox.setFromObject(spikes);
+        const headCenter = headBox.getCenter(new THREE.Vector3());
+        const spikeCenter = spikeBox.getCenter(new THREE.Vector3());
+        spikes.position.set(headCenter.x - spikeCenter.x, headBox.max.y - spikeBox.min.y - 0.02, headCenter.z - spikeCenter.z);
+        clone.add(spikes);
+      }
     }
-    if (agent.id === 'boss' && models.bag) {
-      // BOSS MARKER: daily delivery bag strapped to the back
-      const bag = standAndSize(models.bag, 0.62);
-      bag.position.set(-0.12, 1.02, -0.46);
-      bag.rotation.y = Math.PI;
-      clone.add(bag);
-    }
-    if (agent.id === 'hazard' && models.hazard) {
-      // AGENT HAZARD: warning-sign plate, wider than the body so it peeks out
-      const plate = standAndSize(models.hazard, 1.15);
-      plate.position.set(0, 1.18, -0.5);
-      plate.rotation.y = Math.PI;
-      clone.add(plate);
-    }
-    addIdentityKit(clone, agent, 2.3);
+    // Flowers and delivery bag already exist in the approved body asset.
     applyAgentSurfaces(clone, agent.id);
     return clone;
   }
@@ -888,7 +786,6 @@ function makeAgentMesh(agentOrColor) {
   );
   head.position.set(cx, body.max[1] - height * 0.2, cz);
   g.add(torso, head);
-  addIdentityKit(g, agent, 2.3 * (agent.scale || 1));
   return g;
 }
 
@@ -1474,34 +1371,27 @@ function updateGrenades(dt, now) {
 
 function flashEntityById(id) {
   const mesh = remoteMeshes.get(id);
-  if (!mesh) return;
+  // Repeated hits must not hold the entire character in an emissive silhouette.
+  if (!mesh || mesh.userData._flashT) return;
+  const originals = new Map();
   mesh.traverse((o) => {
     if (!o.isMesh || !o.material) return;
     const mats = Array.isArray(o.material) ? o.material : [o.material];
     for (const m of mats) {
-      if (m.userData._origEm == null) {
-        m.userData._origEm = m.emissive ? m.emissive.getHex() : 0;
-        m.userData._origIn = m.emissiveIntensity != null ? m.emissiveIntensity : 1;
-      }
-      if (m.emissive) {
+      if (m.emissive && !originals.has(m)) {
+        originals.set(m, { color: m.emissive.clone(), intensity: m.emissiveIntensity });
         m.emissive.setHex(0xff3020);
-        m.emissiveIntensity = 1.4;
+        m.emissiveIntensity = 0.35;
       }
     }
   });
-  clearTimeout(mesh.userData._flashT);
   mesh.userData._flashT = setTimeout(() => {
-    mesh.traverse((o) => {
-      if (!o.isMesh || !o.material) return;
-      const mats = Array.isArray(o.material) ? o.material : [o.material];
-      for (const m of mats) {
-        if (m.emissive && m.userData._origEm != null) {
-          m.emissive.setHex(m.userData._origEm);
-          m.emissiveIntensity = m.userData._origIn;
-        }
-      }
-    });
-  }, 140);
+    for (const [material, original] of originals) {
+      material.emissive.copy(original.color);
+      material.emissiveIntensity = original.intensity;
+    }
+    mesh.userData._flashT = null;
+  }, 90);
 }
 
 function spendGolden(e) {
@@ -1542,12 +1432,10 @@ function makePlayerTag(name, color) {
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
     map: texture,
     transparent: true,
-    depthTest: false,
+    depthTest: true,
     depthWrite: false,
   }));
-  sprite.position.y = 2.65;
-  sprite.scale.set(3.2, 0.6, 1);
-  sprite.renderOrder = 100;
+  sprite.scale.set(1.6, 0.3, 1);
   return sprite;
 }
 
@@ -1564,7 +1452,11 @@ function syncRemotes(list) {
     if (!mesh) {
       const agent = getAgent(p.agentId || 'skullpepe');
       mesh = makeAgentMesh({ ...agent, color: p.color || agent.color });
-      mesh.add(makePlayerTag(p.name, p.color || agent.color));
+      const tag = makePlayerTag(p.name, p.color || agent.color);
+      const bounds = new THREE.Box3().setFromObject(mesh);
+      tag.position.y = (bounds.max.y + 0.25) / mesh.scale.y;
+      tag.scale.divide(mesh.scale);
+      mesh.add(tag);
       remoteMeshes.set(p.id, mesh);
       scene.add(mesh);
     }

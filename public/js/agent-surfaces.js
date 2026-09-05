@@ -137,8 +137,9 @@ export function applyAgentSurfaces(root, agentId) {
     const array = Array.isArray(o.material);
     o.material = (array ? o.material : [o.material]).map(source => {
       const role = source.name.replace(/^(Toon|SP_)/, '');
-      if (!palette[role]) return source; // Identity-kit materials are not GLB surface slots.
       const m = source.clone();
+      // Even unknown slots must be entity-local so hit flashes cannot leak.
+      if (!palette[role]) return m;
       m.color.set(palette[role]);
       m.emissive?.set(0);
       m.emissiveIntensity = 0;

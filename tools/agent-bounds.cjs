@@ -20,7 +20,7 @@ function matrix(n) {
     tx, ty, tz, 1,
   ];
 }
-for (const name of ['skullpepe', 'crew_badge']) {
+for (const name of (process.argv.length > 2 ? process.argv.slice(2) : ['skullpepe', 'crew_badge'])) {
   const bytes = fs.readFileSync(path.join(__dirname, '../public/assets/models', `${name}.glb`));
   const gltf = JSON.parse(bytes.subarray(20, 20 + bytes.readUInt32LE(12)).toString());
   const totalMin = [Infinity, Infinity, Infinity], totalMax = [-Infinity, -Infinity, -Infinity];
