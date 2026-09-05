@@ -116,10 +116,10 @@ function resetPads(now) {
 function cornerSpawns(r) {
   r = Math.round(r * 0.7);
   return [
-    { x: -r, y: PLAYER_HEIGHT, z: -r, yaw: Math.PI / 4 },
+    { x: -r, y: PLAYER_HEIGHT, z: -r, yaw: (-3 * Math.PI) / 4 },
     { x: r, y: PLAYER_HEIGHT, z: -r, yaw: (3 * Math.PI) / 4 },
     { x: -r, y: PLAYER_HEIGHT, z: r, yaw: -Math.PI / 4 },
-    { x: r, y: PLAYER_HEIGHT, z: r, yaw: (-3 * Math.PI) / 4 },
+    { x: r, y: PLAYER_HEIGHT, z: r, yaw: Math.PI / 4 },
   ];
 }
 

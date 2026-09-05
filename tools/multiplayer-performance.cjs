@@ -77,7 +77,9 @@ async function main() {
             syncRemotes(list);
             const deferred = mesh.position.x !== p.x;
             await new Promise(resolve => setTimeout(resolve, 250));
-            const shortTurn = Math.abs(mesh.rotation.y - Math.PI) < 0.02;
+            // Remotes render face-toward +Z models with a half-turn offset, so a
+            // logical yaw of -PI lands the mesh near 0, not PI.
+            const shortTurn = Math.abs(mesh.rotation.y) < 0.05 || Math.abs(Math.abs(mesh.rotation.y) - 2 * Math.PI) < 0.05;
             p.alive = false; syncRemotes(list);
             const hidden = !mesh.visible;
             p.alive = true; p.x += 1; syncRemotes(list);

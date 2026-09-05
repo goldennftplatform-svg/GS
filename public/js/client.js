@@ -5,7 +5,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 // Build-stamped imports — bump these versions so browsers drop stale modules
 import { AGENTS, getAgent, statBar } from './roster.js?v=20260904f';
 import { EYE_HEIGHT, MODEL_HEIGHT, HITBOX_VERSION, getBodyBox, getHeadBox, intersectBody, hitRegion, shotDamage } from './body-geometry.mjs?v=20260904g';
-import { MAPS, getMap, buildMapById, bindThree, PAD_SPOTS, GOLD_SPOTS } from './maps.js?v=20260904d';
+import { MAPS, getMap, buildMapById, bindThree, PAD_SPOTS, GOLD_SPOTS } from './maps.js?v=20260904e';
 import { WEAPONS, GOLD_SHOTS, GUN_RANK, getWeapon } from './weapons.js?v=20260825c';
 import { BRAND } from './brand.js?v=20260825c';
 
@@ -167,10 +167,10 @@ const MAP_OBJECTS = { hazards: [], teleporters: [], switches: [] };
 const mapRuntime = { disabledUntil: 0, netState: null };
 
 let SPAWNS = [
-  { x: -52, y: EYE, z: -52, yaw: Math.PI / 4 },
+  { x: -52, y: EYE, z: -52, yaw: (-3 * Math.PI) / 4 },
   { x: 52, y: EYE, z: -52, yaw: (3 * Math.PI) / 4 },
   { x: -52, y: EYE, z: 52, yaw: -Math.PI / 4 },
-  { x: 52, y: EYE, z: 52, yaw: (-3 * Math.PI) / 4 },
+  { x: 52, y: EYE, z: 52, yaw: Math.PI / 4 },
 ];
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -1453,7 +1453,9 @@ function syncRemotes(list) {
     mesh.visible = !!p.alive;
     // No extra render delay or cosmetic body displacement without server rewind.
     mesh.position.set(p.x, p.y - EYE, p.z);
-    mesh.rotation.y = p.yaw;
+    // skullpepe.glb is authored face-toward +Z (eyes/nose at +Z); gameplay
+    // forward is -Z, so offset half a turn or remotes show their backs.
+    mesh.rotation.y = p.yaw + Math.PI;
   }
   for (const [id, mesh] of remoteMeshes) {
     if (!seen.has(id)) {
@@ -3204,7 +3206,7 @@ window.SKULL_DEBUG = {
         renderAgeMs: performance.now() - (mesh.userData.renderedAt || 0),
         visible: mesh.visible,
         position: { x: mesh.position.x, y: mesh.position.y, z: mesh.position.z },
-        yaw: mesh.rotation.y,
+        yaw: players.get(id)?.yaw ?? mesh.rotation.y,
         bodyBox: getBodyBox(players.get(id)?.agentId),
         headBox: getHeadBox(players.get(id)?.agentId),
       })),
