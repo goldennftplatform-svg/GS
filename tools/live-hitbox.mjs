@@ -10,7 +10,7 @@ async function fetchLive(path) {
   return res;
 }
 const version = await (await fetchLive('/version')).json();
-assert.equal(version.hitboxVersion, '20260904-body-box-1');
+assert.equal(version.hitboxVersion, '20260904-head-ads-3');
 const source = await (await fetchLive('/js/body-geometry.mjs')).text();
 const { HITBOX_VERSION, EYE_HEIGHT, AGENT_SCALES, getBodyBox, intersectBody } =
   await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);

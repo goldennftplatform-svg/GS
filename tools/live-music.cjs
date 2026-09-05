@@ -76,12 +76,12 @@ async function main() {
     assert.equal(await page.$eval('#musicMute', el => el.getAttribute('aria-pressed')), 'true');
     assert.equal(await page.evaluate(() => __musicProbe.contexts.length), 0);
     await activate('#musicButton');
+    await page.waitForFunction(() => __musicProbe.gains[0]?.gain.value === 0 && __musicProbe.sources === 0);
     await page.waitForFunction(() => __musicProbe.contexts[0]?.state === 'suspended').catch(async error => {
-      console.error('Persisted-mute diagnostic', await page.evaluate(() => ({
+      console.error('Persisted-mute suspension diagnostic', await page.evaluate(() => ({
         states: __musicProbe.contexts.map(context => context.state),
         sources: __musicProbe.sources,
         gains: __musicProbe.gains.map(gain => gain.gain.value),
-        gestures: __musicProbe.gestures,
         preference: localStorage.getItem('skullbond.music.v1'),
         packets: __musicProbe.packets,
       })));

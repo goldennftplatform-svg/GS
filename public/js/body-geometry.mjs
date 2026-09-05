@@ -1,4 +1,4 @@
-export const HITBOX_VERSION = '20260904-head-ads-2';
+export const HITBOX_VERSION = '20260904-head-ads-3';
 export const EYE_HEIGHT = 1.65;
 export const MODEL_HEIGHT = 1.85;
 export const AGENT_SCALES = Object.freeze({
@@ -15,22 +15,15 @@ const ground = -0.9338316040206245;
 
 export function getBodyBox(agentId) {
   const scale = AGENT_SCALES[agentId] ?? 1;
-  // Existing badge chassis: standAndSize(1.05), centered XZ, mounted at .92.
-  const min = agentId === 'drone' ? [-0.525, 0.92, -0.175] :
-    bodyMin.map((v, i) => (v - (i === 1 ? ground : 0)) * normalization);
-  const max = agentId === 'drone' ? [0.525, 1.97, 0.175] :
-    bodyMax.map((v, i) => (v - (i === 1 ? ground : 0)) * normalization);
+  const min = bodyMin.map((v, i) => (v - (i === 1 ? ground : 0)) * normalization);
+  const max = bodyMax.map((v, i) => (v - (i === 1 ? ground : 0)) * normalization);
   return { min: min.map(v => v * scale), max: max.map(v => v * scale) };
 }
 
 export function getHeadBox(agentId) {
   const scale = AGENT_SCALES[agentId] ?? 1;
-  // Authored Skull + eyes. Badge uses SB_BadgeSkull, transformed by
-  // standAndSize(1.05): source center X=3, Z=.12, ground Y=.4.
-  const min = agentId === 'drone' ? [-0.2681051493 * 0.875, 0.92 + 0.4 * 0.875, -0.175] :
-    [bodyMin[0] * normalization, (1.1853155360507497 - ground) * normalization, bodyMin[2] * normalization];
-  const max = agentId === 'drone' ? [0.2681051791 * 0.875, 0.92 + 0.9 * 0.875, 0.175] :
-    [bodyMax[0] * normalization, (bodyMax[1] - ground) * normalization, bodyMax[2] * normalization];
+  const min = [bodyMin[0] * normalization, (1.1853155360507497 - ground) * normalization, bodyMin[2] * normalization];
+  const max = [bodyMax[0] * normalization, (bodyMax[1] - ground) * normalization, bodyMax[2] * normalization];
   return { min: min.map(v => v * scale), max: max.map(v => v * scale) };
 }
 

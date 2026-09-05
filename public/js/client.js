@@ -1,10 +1,10 @@
 import * as THREE from 'three';
-import { createMobileSpectator } from './mobile-spectator.js?v=20260904h';
+import { createMobileSpectator } from './mobile-spectator.js?v=20260904i';
 import { applyAgentSurfaces } from './agent-surfaces.js?v=20260904d';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 // Build-stamped imports — bump these versions so browsers drop stale modules
 import { AGENTS, getAgent, statBar } from './roster.js?v=20260904f';
-import { EYE_HEIGHT, MODEL_HEIGHT, HITBOX_VERSION, getBodyBox, getHeadBox, intersectBody, hitRegion, shotDamage } from './body-geometry.mjs?v=20260904f';
+import { EYE_HEIGHT, MODEL_HEIGHT, HITBOX_VERSION, getBodyBox, getHeadBox, intersectBody, hitRegion, shotDamage } from './body-geometry.mjs?v=20260904g';
 import { MAPS, getMap, buildMapById, bindThree, PAD_SPOTS, GOLD_SPOTS } from './maps.js?v=20260904d';
 import { WEAPONS, GOLD_SHOTS, GUN_RANK, getWeapon } from './weapons.js?v=20260825c';
 import { BRAND } from './brand.js?v=20260825c';
@@ -242,31 +242,6 @@ function groundNormalize(root, targetHeight) {
   return root;
 }
 
-/**
- * Measure real bounds, stand the model upright (thinnest axis = facing),
- * normalize its largest footprint, center and ground it. No more guessing.
- */
-function standAndSize(src, target) {
-  const obj = src.clone(true);
-  const box = new THREE.Box3().setFromObject(obj);
-  const size = new THREE.Vector3();
-  box.getSize(size);
-  if (size.y <= size.x && size.y <= size.z) obj.rotation.x = -Math.PI / 2;
-  else if (size.x <= size.y && size.x <= size.z) obj.rotation.y = Math.PI / 2;
-  const box2 = new THREE.Box3().setFromObject(obj);
-  const size2 = new THREE.Vector3();
-  box2.getSize(size2);
-  const s = target / Math.max(size2.x, size2.y, 0.001);
-  obj.scale.multiplyScalar(s);
-  const box3 = new THREE.Box3().setFromObject(obj);
-  const center = new THREE.Vector3();
-  box3.getCenter(center);
-  obj.position.x -= center.x;
-  obj.position.z -= center.z;
-  obj.position.y -= box3.min.y;
-  return obj;
-}
-
 /** Self-glow floor so prop-built agents never vanish on dark maps. */
 function popMats(root, strength = 0.3) {
   root.traverse((o) => {
@@ -379,9 +354,8 @@ async function loadGameAssets() {
     bag: '/assets/models/daily_bag.glb',
     token: '/assets/models/skull_token.glb',
     heart: '/assets/models/oneup_heart.glb',
-    daisy: '/assets/models/daisy.glb',
-    badge: '/assets/models/crew_badge.glb',
-    skate: '/assets/models/skateboard.glb',
+     daisy: '/assets/models/daisy.glb',
+     skate: '/assets/models/skateboard.glb',
     barrel: '/assets/models/barrel.glb',
     tomb: '/assets/models/tombstone.glb',
     checker: '/assets/models/checker_wall.glb',
@@ -389,8 +363,8 @@ async function loadGameAssets() {
     mohawk: '/assets/models/mohawk_head.glb',
   };
   try {
-    const heights = { agent: MODEL_HEIGHT, crate: 1.1, server: 3.4, hazard: 2.2,
-      bag: 1, heart: 0.7, daisy: 1.15, badge: 1, skate: 0.35, barrel: 1.35,
+const heights = { agent: MODEL_HEIGHT, crate: 1.1, server: 3.4, hazard: 2.2,
+      bag: 1, heart: 0.7, daisy: 1.15, skate: 0.35, barrel: 1.35,
       tomb: 1.6, checker: 1.8, pipes: 2.4, mohawk: 1.4 };
     const results = await Promise.allSettled(Object.entries(urls).map(async ([key, url]) => {
       const root = await loadModel(url);
@@ -398,7 +372,7 @@ async function loadGameAssets() {
       if (key === 'agent') root.traverse(o => {
         if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; }
       });
-      if (['agent', 'badge', 'mohawk'].includes(key)) {
+      if (['agent', 'mohawk'].includes(key)) {
         models[key] = root;
         modelRevision++;
         syncRemotes(offlineMatch ? offlineMatch.roster : [...players.values()]);
@@ -728,25 +702,8 @@ function makeAgentMesh(agentOrColor, useModels = true) {
       : agentOrColor || getAgent('skullpepe');
   const color = agent.color || agent.tint || '#6BAF6E';
 
-  if (useModels && (agent.id === 'drone' ? models.badge : models.agent)) {
-    // Real-sample skins — unique bodies built from the NSES asset kit
-    if (agent.id === 'drone' && models.badge) {
-      // Keep the approved hovering badge chassis.
-      const g = new THREE.Group();
-      const disk = new THREE.Group();
-      disk.add(applyAgentSurfaces(standAndSize(models.badge, 1.05), agent.id));
-      disk.traverse((o) => {
-        if (o.isMesh) {
-          o.castShadow = true;
-          o.receiveShadow = true;
-        }
-      });
-      disk.position.y = 0.92;
-      g.add(disk);
-      g.scale.setScalar(agent.scale || 1);
-      return g;
-    }
-
+if (useModels && models.agent) {
+    // Real-sample skins — unique bodies built from the NSES asset kit.
     // Gameplay placement/scaling must not overwrite the normalized asset root.
     const clone = new THREE.Group();
     clone.add(models.agent.clone(true));

@@ -98,7 +98,7 @@
     const active = () => unlocked && !document.hidden && !away && !muted && volume > 0;
     if (!active()) {
       stop();
-      if (context.state === 'running') await context.suspend().catch(() => {});
+      await context.suspend().catch(() => {});
       render();
       return;
     }
@@ -133,12 +133,13 @@
         }
         context.onstatechange = () => {
           if (context.state !== 'running') stop();
+          else if (muted) { void context.suspend().catch(() => {}); }
           else if (!document.hidden && !away && !muted && volume) schedule();
           render();
         };
       } catch { status.textContent = 'Music unavailable'; return; }
     }
-    if (context.state !== 'running' || muted || !volume) void sync();
+    void sync();
   }
   function preference() {
     try { localStorage.setItem(storageKey, JSON.stringify({ volume, muted })); } catch {}
