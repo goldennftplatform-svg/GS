@@ -1,4 +1,6 @@
-/** Fixed Skullbond agents. IDs remain stable for saved selections and multiplayer. */
+/** Fixed Skullbond agents. IDs remain stable for saved selections and multiplayer.
+ * Portraits are individual 3:4 posters, not sprite-sheet crops; display them whole.
+ */
 export const AGENTS = [
   {
     id: 'skullpepe',
@@ -8,7 +10,7 @@ export const AGENTS = [
     color: '#6BAF6E',
     accent: '#2E6E3E',
     portrait: '/assets/agents/og-skull-pepe.webp',
-    portraitPos: 'center top',
+    portraitPos: 'center',
     bio: 'The original street-bone gunslinger.',
     lore: 'Board underfoot, Ray Gun in hand. OG Skull Pepe is the balanced all-rounder built for first contact and last laughs.',
     tip: 'Stay mobile. Own the middle.',
@@ -28,7 +30,7 @@ export const AGENTS = [
     color: '#5D9B62',
     accent: '#F4C928',
     portrait: '/assets/agents/daisy-skull-pepe.webp',
-    portraitPos: 'center top',
+    portraitPos: 'center',
     bio: 'Peace signs, hard flanks, zero apologies.',
     lore: 'Daisy turns every arena into a victory garden. Light on armor and quick through side routes, she is built to appear where nobody checked.',
     tip: 'Flank. Bloom. Delete.',
@@ -47,7 +49,7 @@ export const AGENTS = [
     color: '#E5392D',
     accent: '#151515',
     portrait: '/assets/agents/punk-spike-pepe.webp',
-    portraitPos: 'center top',
+    portraitPos: 'center',
     bio: 'The fastest bad decision in the building.',
     lore: 'Punk Spike trades armor for speed and never enters through the expected door. Catch the red mohawk and the fight already started.',
     tip: 'Rush vents. Break sightlines.',
@@ -66,7 +68,7 @@ export const AGENTS = [
     color: '#B56A4D',
     accent: '#E5392D',
     portrait: '/assets/agents/courier-bag-pepe.webp',
-    portraitPos: 'center top',
+    portraitPos: 'center',
     bio: 'Special delivery: armor, ammo, and trouble.',
     lore: 'Courier Bag Pepe carries the heaviest kit on the roster. He is slower to the fight, harder to remove, and always delivers the return package.',
     tip: 'Hold ground. Outlast the rush.',
@@ -85,7 +87,7 @@ export const AGENTS = [
     color: '#8E8E8E',
     accent: '#6BAF6E',
     portrait: '/assets/agents/tech-ray-pepe.webp',
-    portraitPos: 'center top',
+    portraitPos: 'center',
     bio: 'Signal hunter with a backpack full of static.',
     lore: 'Tech Ray tracks the arena pulse and carries enough improvised hardware to jam a small moon. Quick strafes and clean angles keep his signal alive.',
     tip: 'Read radar. Control range.',
@@ -105,7 +107,7 @@ export const AGENTS = [
     color: '#F1C52A',
     accent: '#111111',
     portrait: '/assets/agents/hazard-pepe.webp',
-    portraitPos: 'center top',
+    portraitPos: 'center',
     bio: 'Caution tape is a challenge, not a warning.',
     lore: 'Hazard Pepe knows every damage zone and shortcut because he probably installed it. Durable, direct, and brightest when the reactor turns red.',
     tip: 'Pressure objectives. Fear nothing.',

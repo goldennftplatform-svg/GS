@@ -467,7 +467,8 @@ function applyPlayerInput(p) {
       (-mx * Math.sin(p.yaw) + mz * Math.cos(p.yaw)) * speed * (TICK_MS / 1000)
     );
   }
-  if (input.shoot) tryShoot(p, input.click);
+  // A release packet can arrive before the tick consumes a pending click.
+  if (input.shoot || input.click) tryShoot(p, input.click);
   input.click = false;
 }
 
@@ -841,9 +842,11 @@ setInterval(() => {
     match.endsAt = now + 999999;
   }
 
+  let state;
   for (const client of wss.clients) {
     if (client.readyState !== 1 || !client.playerId) continue;
-    send(client, snapshot(client.playerId));
+    state ||= snapshot();
+    send(client, { ...state, you: client.playerId });
   }
 }, TICK_MS);
 

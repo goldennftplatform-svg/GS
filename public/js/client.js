@@ -1603,7 +1603,11 @@ function syncRemotes(list) {
       remoteMeshes.set(p.id, mesh);
       scene.add(mesh);
     }
+    const snap = offlineMode || !mesh.userData.netPose || mesh.visible !== !!p.alive ||
+      Math.hypot(p.x - mesh.position.x, p.z - mesh.position.z) > 6;
+    mesh.userData.netPose = p;
     mesh.visible = !!p.alive;
+    if (!snap) continue;
     const bob = mesh.userData.hoverBob ? Math.sin(performance.now() * 0.004) * 0.12 : 0;
     mesh.position.set(p.x, (p.y || EYE) - EYE + bob, p.z);
     mesh.rotation.y = p.yaw;
@@ -1979,11 +1983,14 @@ function updateHud(state) {
 
   const maxHp = me.maxHp || 100;
   const hearts = Math.ceil((me.hp / maxHp) * 3);
-  els.hearts.innerHTML = '';
-  for (let i = 0; i < 3; i++) {
-    const h = document.createElement('div');
-    h.className = 'heart' + (i < hearts ? ' full' : '');
-    els.hearts.appendChild(h);
+  if (updateHud.hearts !== hearts) {
+    updateHud.hearts = hearts;
+    els.hearts.innerHTML = '';
+    for (let i = 0; i < 3; i++) {
+      const h = document.createElement('div');
+      h.className = 'heart' + (i < hearts ? ' full' : '');
+      els.hearts.appendChild(h);
+    }
   }
   els.energy.style.width = `${Math.max(15, Math.min(100, (me.hp / maxHp) * 100))}%`;
   if (els.armor) els.armor.style.width = `${Math.max(0, Math.min(100, me.armor || 0))}%`;
@@ -2011,19 +2018,28 @@ function updateHud(state) {
   }
   lastHp = me.hp;
 
-  els.killFeed.innerHTML = state.killFeed
+  const feedHtml = state.killFeed
     .slice()
     .reverse()
     .map((k) => `<div style="border-right-color:${k.color || 'var(--green)'}">${k.text}</div>`)
     .join('');
 
   const board = [...state.players].sort((a, b) => b.kills - a.kills || a.deaths - b.deaths);
-  els.scoreboard.innerHTML = board
+  if (updateHud.feedHtml !== feedHtml) {
+    els.killFeed.innerHTML = feedHtml;
+    updateHud.feedHtml = feedHtml;
+  }
+  const boardHtml = board
     .map((p, i) => {
       const you = p.id === myId ? ' ›' : '';
       return `<div style="color:${p.color};border-left-color:${p.color}${you ? ';background:rgba(107,175,110,0.08)' : ''}">${i + 1}. ${p.name}${you}  ${p.kills}-${p.deaths}</div>`;
     })
     .join('');
+
+  if (updateHud.boardHtml !== boardHtml) {
+    els.scoreboard.innerHTML = boardHtml;
+    updateHud.boardHtml = boardHtml;
+  }
 
   if (!me.alive) showCenter('ELIMINATED — RESPAWNING', 2200);
 }
@@ -3381,7 +3397,8 @@ window.SKULL_DEBUG = {
 const clock = new THREE.Clock();
 function tick() {
   requestAnimationFrame(tick);
-  const dt = Math.min(0.05, clock.getDelta());
+  const frameDt = clock.getDelta();
+  const dt = Math.min(0.05, frameDt);
   const t = clock.elapsedTime;
 
   for (const o of animatedProps) {
@@ -3419,7 +3436,20 @@ function tick() {
   }
 
   if (offlineMode) offlineTick(dt);
-  else sendInput();
+  else {
+    // Smooth toward authoritative poses without extrapolating through walls.
+    const blend = 1 - Math.exp(-frameDt / 0.05);
+    for (const mesh of remoteMeshes.values()) {
+      const p = mesh.userData.netPose;
+      if (!p || !mesh.visible) continue;
+      const bob = mesh.userData.hoverBob ? Math.sin(performance.now() * 0.004) * 0.12 : 0;
+      mesh.position.x += (p.x - mesh.position.x) * blend;
+      mesh.position.y += ((p.y || EYE) - EYE + bob - mesh.position.y) * blend;
+      mesh.position.z += (p.z - mesh.position.z) * blend;
+      const turn = p.yaw - mesh.rotation.y;
+      mesh.rotation.y += Math.atan2(Math.sin(turn), Math.cos(turn)) * blend;
+    }
+  }
   updateMapGameplay(dt, Date.now());
   updateBolts(dt);
   updateTracers();
