@@ -2,11 +2,14 @@
 // Usage: node tools/live-mobile-spectator.cjs [approved Render URL]
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const path = require('node:path');
 const base = new URL(process.argv[2] || 'https://skullbond-gs-4p-2026.onrender.com');
 assert.equal(base.origin, 'https://skullbond-gs-4p-2026.onrender.com');
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 let browser;
 async function main() {
+  const screenshotDir = process.env.SCREENSHOT_DIR;
+  if (screenshotDir) assert(fs.statSync(screenshotDir).isDirectory(), 'SCREENSHOT_DIR must already exist');
   const source = await fetch(new URL('/js/mobile-spectator.js?v=20260904h', base));
   assert(source.ok && (await source.text()).includes('createMobileSpectator'),
     'Mobile spectator build not deployed; no socket connections attempted');
@@ -124,12 +127,31 @@ async function main() {
   assert.deepEqual((await state()).camera, rotated, 'Screen rotation must rebase');
   for (const size of [[844, 390], [390, 844]]) {
     await page.setViewport({ width: size[0], height: size[1], isMobile: true, hasTouch: true });
+    if (screenshotDir) {
+      const file = path.join(screenshotDir, `skullbond-spectator-${size[0]}x${size[1]}.png`);
+      await page.screenshot({ path: file });
+      console.log('SCREENSHOT', file);
+    }
     assert(await page.evaluate(() => [...document.querySelectorAll('#mobileSpectator button, #menuBtn')].every(button => {
       const r = button.getBoundingClientRect();
       const top = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
       return r.width >= 44 && r.height >= 44 && r.x >= 0 && r.y >= 0 && r.right <= innerWidth &&
         r.bottom <= innerHeight && (top === button || button.contains(top));
     })), `Controls must fit and be unobscured: ${size}`);
+    assert(await page.$eval('#menuBtn', button => {
+      const style = getComputedStyle(button);
+      const luminance = color => {
+        const rgb = color.match(/[\d.]+/g).slice(0, 3).map(Number).map(value => {
+          const channel = value / 255;
+          return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+        });
+        return rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722;
+      };
+      // Require an opaque surface so contrast does not depend on the arena behind it.
+      if (style.backgroundColor.startsWith('rgba')) return false;
+      const foreground = luminance(style.color), background = luminance(style.backgroundColor);
+      return (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05) >= 4.5;
+    }), 'Back to Menu must have readable contrast against an opaque surface');
   }
   // Visibility is emulated, not a claim of physical OS background testing.
   await page.evaluate(() => {

@@ -1012,6 +1012,21 @@ button:focus-visible, input:focus-visible {
   .spectate-entry span { text-align: center; }
 }
 
+#musicControls { position: fixed; z-index: 45; right: max(12px, env(safe-area-inset-right)); bottom: max(12px, env(safe-area-inset-bottom)); color: #fff2b3; font: 12px/1.5 'Black Ops One', monospace; }
+#musicControls button { min-height: 44px; min-width: 44px; padding: 8px 12px; border: 1px solid #6baf6e; border-radius: 4px; color: #fff2b3; background: #101e17; font: inherit; cursor: pointer; touch-action: manipulation; }
+#musicControls :focus-visible { outline: 3px solid #fff2b3; outline-offset: 2px; }
+#musicPanel { position: absolute; right: 0; bottom: 52px; width: min(260px, calc(100vw - 24px)); box-sizing: border-box; padding: 14px; border: 1px solid #6baf6e; background: #101e17; box-shadow: 0 6px 20px #0008; }
+#musicPanel[hidden] { display: none; }
+#musicPanel label { display: flex; justify-content: space-between; }
+#musicVolume { display: block; width: 100%; min-height: 44px; margin: 4px 0; accent-color: #6baf6e; }
+#musicStatus, #musicPanel small { display: block; margin-top: 8px; }
+.mobile-spectator #musicControls { right: 50%; transform: translateX(50%); }
+.mobile-spectator #musicPanel { right: 50%; transform: translateX(50%); }
+@media (max-height: 500px) and (orientation: landscape) {
+  .mobile-spectator #musicControls { bottom: auto; top: max(6px, env(safe-area-inset-top)); }
+  .mobile-spectator #musicPanel { bottom: auto; top: 52px; }
+}
+
 #sessionControls {
   position: fixed;
   z-index: 40;
@@ -1049,6 +1064,8 @@ button:focus-visible, input:focus-visible {
 .mobile-spectator #game { touch-action: none; }
 .mobile-spectator #sessionControls { top: max(6px, env(safe-area-inset-top)); width: calc(100% - 24px); padding: 0; border: 0; background: transparent; justify-content: space-between; flex-wrap: nowrap; }
 .mobile-spectator #sessionLabel { background: #0a100ce6; padding: 8px; font-size: 10px; }
+.mobile-spectator #menuBtn { background: #101e17; color: #fff2b3; border: 1px solid #6baf6e; border-radius: 6px; box-shadow: none; }
+.mobile-spectator #menuBtn:focus-visible { outline: 3px solid #fff2b3; outline-offset: 2px; }
 .mobile-spectator #sessionHint, .mobile-spectator #hud .hud-top, .mobile-spectator #radar, .mobile-spectator #mapTag { display: none; }
 .mobile-spectator #scoreboard { top: 150px; font-size: 9px; }
 .mobile-spectator #killFeed { top: 210px; font-size: 9px; }

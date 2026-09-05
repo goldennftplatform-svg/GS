@@ -2967,6 +2967,7 @@ nameInput.addEventListener('keydown', (e) => {
 
 
 addEventListener('keydown', (e) => {
+  if (e.target.closest?.('#musicControls')) return;
   if (e.code === 'Escape') {
     clearInput();
     document.exitPointerLock?.();

@@ -5,12 +5,22 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta http-equiv="Cache-Control" content="no-store" />
   <title>SKULLBOND — 5 ARENAS</title>
-  <link rel="stylesheet" href="/css/style.css?v=20260904h" />
+  <link rel="stylesheet" href="/css/style.css?v=20260904j" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Black+Ops+One&display=swap" rel="stylesheet" />
 </head>
 <body>
+  <section id="musicControls" aria-label="Music controls">
+    <button id="musicButton" type="button" aria-label="Adjust music volume" aria-expanded="false" aria-controls="musicPanel">[MUSIC]</button>
+    <div id="musicPanel" hidden>
+      <label for="musicVolume">MUSIC <output id="musicValue" for="musicVolume">25%</output></label>
+      <input id="musicVolume" type="range" min="0" max="100" step="1" value="25" />
+      <button id="musicMute" type="button" aria-pressed="false">MUTE</button>
+      <span id="musicStatus" role="status">Ready on next interaction</span>
+      <small>Original 8-bit spy cue. SFX unchanged.<br />ESC releases mouse to adjust.</small>
+    </div>
+  </section>
   <div id="boot">
     <div class="check-top"></div>
     <div class="spectate-entry">
@@ -179,6 +189,7 @@
   }
   </script>
   <script type="module" src="/js/brand.js?v=20260824c"></script>
-  <script type="module" src="/js/client.js?v=20260904h"></script>
+  <script src="/js/music.js?v=20260904j" defer></script>
+  <script type="module" src="/js/client.js?v=20260904j"></script>
 </body>
 </html>
