@@ -1707,7 +1707,7 @@ function spawnTracer(origin, dir, dist, weapon, local = false, boltSize = weapon
     };
   }
   scene.add(beam);
-  tracers.push({ mesh: beam, born: performance.now(), ttl: 140 });
+  tracers.push({ mesh: beam, born: null, ttl: 140 });
   spawnBolt(start, direction, local ? myId : 'remote', weapon.boltColor, boltSize, len);
 }
 
@@ -1724,6 +1724,9 @@ function spawnNetworkTracer(originData, impactData, weaponId) {
 
 function updateTracers() {  for (let i = tracers.length - 1; i >= 0; i--) {
     const t = tracers[i];
+    // Network arrivals can wait longer than the whole TTL for a slow frame.
+    // Start the beam's fade on its first animation update, before its first draw.
+    t.born ??= performance.now();
     const age = performance.now() - t.born;
     if (age >= t.ttl) {
       scene.remove(t.mesh);
@@ -3411,7 +3414,7 @@ window.SKULL_DEBUG = {
   },
   simulateLock() {
     Object.defineProperty(document, 'pointerLockElement', {
-      value: document.querySelector('canvas'),
+      value: canvas,
       configurable: true,
     });
     document.dispatchEvent(new Event('pointerlockchange'));
