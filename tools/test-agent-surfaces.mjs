@@ -35,6 +35,14 @@ for (const id of ['skullpepe', 'daisy', 'mini', 'boss', 'drone', 'hazard']) {
   assert.equal(get('Skull').map, undefined);
   assert.equal(get('FootL').map.flipY, false);
   assert.equal(get('FootL').map, get('FootR').map);
+  if (id === 'boss') {
+    assert(get('FootL').map.name.includes('shoe-og:'), 'Courier footwear uses skull patches, not shipping labels');
+    assert(get('DeliveryBag').map.name.includes('courier:'));
+  }
+  if (id === 'hazard') {
+    assert(get('StrapH').map.name.includes('tape:'), 'Narrow straps use stripes rather than crushed lettering');
+    assert(get('StrapV').map.name.includes('tape:'));
+  }
   maps.add(get('DeliveryBag').map.name);
 }
 assert.equal(maps.size, 6, 'Six distinct accessory surface treatments');

@@ -26,6 +26,17 @@ for (const name of ['skullpepe', 'daily_bag', 'crew_badge', 'mohawk_head', 'haza
       }
       console.log(JSON.stringify({ mesh: mesh.name, nodes: g.nodes.filter(n => n.mesh === g.meshes.indexOf(mesh)).map(n => n.name), material: g.materials[p.material]?.name,
         vertices: g.accessors[p.attributes.POSITION].count, uv: range }));
+      if (process.argv.includes('--faces') && g.nodes.some(n => n.mesh === g.meshes.indexOf(mesh) && /^(DeliveryBag|SB_BagBody|SB_BadgeDisk)$/.test(n.name))) {
+        const attributes = {};
+        for (const semantic of ['POSITION', 'NORMAL', 'TEXCOORD_0']) {
+          const a = g.accessors[p.attributes[semantic]];
+          const view = g.bufferViews[a.bufferView];
+          const size = semantic === 'TEXCOORD_0' ? 2 : 3;
+          attributes[semantic] = Array.from({ length: a.count }, (_, i) => Array.from({ length: size }, (_, j) =>
+            b.readFloatLE(bin + (view.byteOffset || 0) + (a.byteOffset || 0) + i * (view.byteStride || size * 4) + j * 4)));
+        }
+        console.log(JSON.stringify({ faces: attributes, nodes: g.nodes.filter(n => n.mesh === g.meshes.indexOf(mesh)) }));
+      }
     }
   }
 }

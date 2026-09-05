@@ -20,12 +20,22 @@ function surfaceTexture(kind, base, cube = true) {
   const g = canvas.getContext('2d');
   g.fillStyle = base;
   g.fillRect(0, 0, 512, 512);
-  const tiles = cube ? Array.from({ length: 12 }, (_, i) => [64 + (i % 3) * 128, Math.floor(i / 3) * 128, 128]) : [[0, 0, 512]];
-  for (const [x, y, size] of tiles) {
+  // UV +U is model +Y on all four upright box faces (not image right).
+  // Cylinder caps occupy two circles below V=.5; the top half is only the rim.
+  const tiles = cube
+    ? [[192, 0, 128, Math.PI / 2], [192, 128, 128, Math.PI / 2],
+      [192, 256, 128, Math.PI / 2], [192, 384, 128, Math.PI / 2],
+      [64, 128, 128, 0], [320, 128, 128, Math.PI]]
+    : [[5.12, 261.12, 245.76, 0], [261.12, 261.12, 245.76, 0, true]];
+  for (const [x, y, size, rotation, mirror] of tiles) {
     g.save();
     g.translate(x, y);
     g.scale(size / 128, size / 128);
     g.beginPath(); g.rect(0, 0, 128, 128); g.clip();
+    g.translate(64, 64);
+    g.rotate(rotation);
+    if (mirror) g.scale(-1, 1);
+    g.translate(-64, -64);
     // Deterministic fine scuffs; no per-spawn random appearance or asset downloads.
     for (let i = 0; i < 160; i++) {
       g.fillStyle = i % 2 ? '#ffffff12' : '#00000020';
@@ -59,6 +69,14 @@ function surfaceTexture(kind, base, cube = true) {
           g.beginPath(); g.ellipse(cx + Math.cos(a) * 13, cy + Math.sin(a) * 13, 10, 5, a, 0, Math.PI * 2); g.fill(); g.stroke();
         }
         g.fillStyle = '#e9bd32'; g.beginPath(); g.arc(cx, cy, 7, 0, Math.PI * 2); g.fill(); g.stroke();
+      }
+    } else if (kind === 'tape') {
+      // Narrow straps cannot carry a square label without crushing its letters.
+      g.fillStyle = '#e9bd32'; g.fillRect(0, 0, 128, 128);
+      g.fillStyle = '#141715';
+      for (let i = -128; i < 256; i += 32) {
+        g.beginPath(); g.moveTo(0, i); g.lineTo(128, i + 32);
+        g.lineTo(128, i + 48); g.lineTo(0, i + 16); g.fill();
       }
     } else if (kind === 'hazard') {
       g.fillStyle = '#e9bd32'; g.fillRect(0, 8, 128, 28); g.fillRect(0, 94, 128, 26);
@@ -129,15 +147,20 @@ export function applyAgentSurfaces(root, agentId) {
       let kind;
       let base = palette[role];
       if (/^(Strap[HV]|DeliveryBag|SB_BagBody)$/.test(o.name)) {
-        kind = /Strap/.test(o.name) ? (style === 'hazard' ? 'hazard' : 'leather') : style;
+        kind = /Strap/.test(o.name) ? (style === 'hazard' ? 'tape' : 'leather') : style;
         base = style === 'punk' || style === 'hazard' ? '#242522' : '#79513a';
       }
-      if (/^(Foot[LR]|DeckTop)$/.test(o.name)) { kind = o.name === 'DeckTop' ? style : `shoe-${style}`; base = '#202924'; }
+      if (/^(Foot[LR]|DeckTop)$/.test(o.name)) {
+        // Delivery labels belong on bags, not enlarged across sneaker/deck faces.
+        const print = style === 'courier' ? 'og' : style;
+        kind = o.name === 'DeckTop' ? print : `shoe-${print}`; base = '#202924';
+      }
       if (agentId === 'mini' && o.name === 'Torso') { kind = 'vest'; base = '#f3edcf'; }
       if ((agentId === 'mini' || agentId === 'hazard') && o.name === 'Pelvis') { kind = style; base = '#242522'; }
       if (/^(Paper[12]|PaperStripe|SB_BagPaper)$/.test(o.name)) { kind = 'news'; base = '#eee3b9'; }
       if (o.name === 'RayScreen' || o.name === 'SB_BadgeDisk') { kind = 'tech'; base = '#424a43'; m.metalness = 0.25; }
-      if (o.name === 'SB_HazPole') { kind = 'hazard'; base = '#242522'; }
+      if (o.name === 'SB_BadgeDisk') { base = '#777d78'; m.metalness = 0; }
+      if (o.name === 'SB_HazPole') { kind = 'tape'; base = '#242522'; }
       if (/^SB_MohEye/.test(o.name)) m.color.set('#141715');
       if (kind && o.geometry.attributes.uv) {
         m.map = surfaceTexture(kind, base, o.name !== 'SB_BadgeDisk');

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { applyAgentSurfaces } from './agent-surfaces.js?v=20260904b';
+import { applyAgentSurfaces } from './agent-surfaces.js?v=20260904c';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 // Build-stamped imports — bump these versions so browsers drop stale modules
 import { AGENTS, getAgent, statBar } from './roster.js?v=20260904a';

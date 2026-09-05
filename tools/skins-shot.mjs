@@ -7,7 +7,7 @@ import puppeteer from 'puppeteer-core';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const OUT = 'C:/Users/PreSafu/AppData/Local/Temp/opencode/skullshots';
+const OUT = 'C:/Users/PreSafu/AppData/Local/Temp/opencode/skullshots/isolated';
 const live = new URL(process.argv[2]);
 if (live.protocol !== 'https:' || /localhost|127\.|\[|\.local$|^10\.|^192\.168\.|^172\.(1[6-9]|2\d|3[01])\./i.test(live.hostname)) {
   throw new Error('An explicit public live HTTPS URL is required');
@@ -46,7 +46,7 @@ await page.evaluateOnNewDocument(() => {
 await page.goto(live.href, { waitUntil: 'networkidle2', timeout: 60000 });
 await page.waitForFunction(() => !!window.SKULL_DEBUG, { timeout: 30000 });
 await page.waitForFunction(() => document.getElementById('bootStatus')?.textContent.includes('ASSETS LOCKED'), { timeout: 60000 });
-await page.waitForFunction(() => performance.getEntriesByType('resource').some(r => r.name.includes('/js/agent-surfaces.js?v=20260904b')), { timeout: 30000 });
+await page.waitForFunction(() => performance.getEntriesByType('resource').some(r => r.name.includes('/js/agent-surfaces.js?v=20260904c')), { timeout: 30000 });
 
 // Hide HUD chrome for clean skin shots
 await page.evaluate(() => {
@@ -65,9 +65,23 @@ async function shot(mapId, name) {
 await shot('stadium', 'lineup-stadium.png');
 await shot('facility', 'lineup-facility.png');
 
+// Keep the raw arena lineups above. Isolated shots remove only diagnostic adornments,
+// not authored meshes/materials, and use stadium to avoid the facility reactor overlay.
+await page.evaluate(async () => {
+  await SKULL_DEBUG.photoMode('stadium');
+  for (const root of SKULL_DEBUG._photo) {
+    for (const child of root.children) {
+      if (child.isSprite || (child.isMesh && !child.material?.name)) child.visible = false;
+    }
+  }
+});
+
 // Both sides of every actual agent, including courier bag and Tech chassis.
 for (const [i, name] of ['og', 'daisy', 'spike', 'courier', 'tech', 'hazard'].entries()) {
-  await page.evaluate((idx) => SKULL_DEBUG.focusAgent(idx), i);
+  await page.evaluate((idx) => {
+    SKULL_DEBUG._photo.forEach((m, j) => { m.visible = j === idx; });
+    SKULL_DEBUG.focusAgent(idx);
+  }, i);
   await sleep(350);
   await page.screenshot({ path: path.join(OUT, `close-${name}.png`) });
   console.log('saved close-' + name);
